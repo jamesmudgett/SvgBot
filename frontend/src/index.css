@@ -15,7 +15,8 @@ body {
 }
 
 #root {
-  max-width: 1200px;
+  --layout-max-width: 1200px;
+  max-width: var(--layout-max-width);
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
@@ -26,9 +27,45 @@ h1 {
   margin: 0 0 0.25rem;
 }
 
+.site-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.site-logo {
+  display: block;
+  width: calc(409px * 0.7);
+  height: auto;
+  max-width: 100%;
+}
+
+.site-header-text {
+  width: 100%;
+  text-align: left;
+}
+
+.site-header-text h1 {
+  text-align: center;
+}
+
+.site-header-text .subtitle-secondary {
+  margin-bottom: 0;
+}
+
 .subtitle {
   color: #9aa0a6;
-  margin: 0 0 2rem;
+  margin: 0 0 0.75rem;
+}
+
+.subtitle-secondary {
+  margin-bottom: 2rem;
+}
+
+.subtitle strong {
+  color: #e8eaed;
+  font-weight: 600;
 }
 
 .panel {
@@ -246,6 +283,20 @@ button:disabled {
   color: #6c727b;
 }
 
+.engine-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.engine-hint {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #6c727b;
+}
+
 /* ---------- Vertical progress stepper ---------- */
 .progress-panel {
   padding: 1rem 1.25rem;
@@ -380,4 +431,193 @@ button:disabled {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------- Info sections (How it works, Agents and Pricing) ---------- */
+.info-section {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid #2a2f3a;
+}
+
+.info-section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.info-lead {
+  margin: 0 0 1.5rem;
+  color: #9aa0a6;
+}
+
+.info-phases {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.info-phase {
+  background: #1a1d26;
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.info-phase h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8eaed;
+}
+
+.info-phase p {
+  margin: 0 0 0.75rem;
+  color: #9aa0a6;
+  font-size: 0.92rem;
+}
+
+.info-phase p:last-child {
+  margin-bottom: 0;
+}
+
+.info-phase ul,
+.info-phase ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+  color: #9aa0a6;
+  font-size: 0.92rem;
+}
+
+.info-phase li + li {
+  margin-top: 0.35rem;
+}
+
+.info-engine-list {
+  margin: 0 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.info-engine-item {
+  margin: 0;
+}
+
+.info-engine-item dt {
+  margin: 0 0 0.25rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #e8eaed;
+}
+
+.info-engine-item dd {
+  margin: 0;
+  color: #9aa0a6;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.info-engine-best-for {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #4f8cff;
+}
+
+.info-engine-auto-heading {
+  margin-top: 0.25rem !important;
+}
+
+.info-engine-auto-list {
+  margin-bottom: 0.75rem !important;
+}
+
+.info-phase strong {
+  color: #cdd2d8;
+}
+
+.info-phase code {
+  font-size: 0.85em;
+  background: #0f1117;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.info-subheading {
+  margin: 1.5rem 0 0.65rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8eaed;
+}
+
+.info-pricing-card {
+  background: linear-gradient(135deg, rgba(79, 140, 255, 0.1), rgba(79, 140, 255, 0.03));
+  border: 1px solid rgba(79, 140, 255, 0.25);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.info-price {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  color: #e8eaed;
+}
+
+.info-price strong {
+  font-size: 1.5rem;
+  color: #4f8cff;
+}
+
+.info-price-note {
+  margin: 0;
+  color: #9aa0a6;
+  font-size: 0.92rem;
+}
+
+.info-endpoints,
+.info-workflow {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #9aa0a6;
+  font-size: 0.92rem;
+}
+
+.info-endpoints li + li,
+.info-workflow li + li {
+  margin-top: 0.5rem;
+}
+
+.info-endpoints a,
+.info-workflow a,
+.info-lead a {
+  color: #4f8cff;
+  text-decoration: none;
+}
+
+.info-endpoints a:hover,
+.info-workflow a:hover,
+.info-lead a:hover {
+  text-decoration: underline;
+}
+
+.info-endpoints code,
+.info-workflow code,
+.info-price-note code,
+.info-footnote code {
+  font-size: 0.85em;
+  background: #0f1117;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.info-footnote {
+  margin: 1.25rem 0 0;
+  font-size: 0.85rem;
+  color: #6c727b;
 }

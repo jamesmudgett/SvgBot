@@ -20,7 +20,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import get_settings
-from app.services import vtracer_engine
+from app.services import preprocess, vtracer_engine
 from app.services.dino_score import score_svg
 from app.services.svg_raster import rasterize_svg
 
@@ -115,9 +115,12 @@ _PASS_VARIANTS: tuple[_Variant, ...] = (
             "colormode": "color",
             "hierarchical": "stacked",
             "mode": "spline",
-            "filter_speckle": 1,
-            "path_precision": 8,
-            "color_precision": 8,
+            "filter_speckle": 4,
+            "path_precision": 5,
+            "color_precision": 5,
+            "corner_threshold": 80,
+            "length_threshold": 6.0,
+            "splice_threshold": 65,
         },
     ),
     _Variant(
@@ -126,12 +129,15 @@ _PASS_VARIANTS: tuple[_Variant, ...] = (
         min_component_area=8,
         min_thickness=1,
         vtracer={
-            "colormode": "binary",
+            "colormode": "color",
             "hierarchical": "stacked",
             "mode": "spline",
-            "filter_speckle": 1,
-            "path_precision": 8,
+            "filter_speckle": 6,
+            "path_precision": 4,
             "color_precision": 4,
+            "corner_threshold": 85,
+            "length_threshold": 7.0,
+            "splice_threshold": 70,
         },
     ),
 )
@@ -371,7 +377,7 @@ def iterative_refine(
         threshold if threshold is not None else settings.refine_residual_threshold
     )
 
-    if max_passes <= 0 or not settings.refine_enabled:
+    if max_passes <= 0:
         score, _ = score_svg(original, base_svg, width, height)
         return RefineResult(svg=base_svg, score=score, passes=0, coverage=0.0)
 
@@ -431,6 +437,13 @@ def iterative_refine(
         consecutive_empty = 0
 
         residual = make_residual_rgba(original, mask)
+        settings = get_settings()
+        if settings.vtracer_smooth_enabled:
+            residual = preprocess.clean_rgba_for_tracing(
+                residual,
+                palette_size=settings.vtracer_smooth_palette_size,
+                bilateral=settings.vtracer_smooth_bilateral,
+            )
         try:
             overlay_svg = vectorize_residual(residual, **variant.vtracer)
         except Exception as exc:

@@ -96,6 +96,42 @@ def clean_for_tracing(
     return Image.fromarray(arr, mode="RGB")
 
 
+def clean_rgba_for_tracing(
+    rgba: Image.Image,
+    *,
+    palette_size: int = 6,
+    bilateral: bool = True,
+    bilateral_d: int = 7,
+    bilateral_sigma_color: int = 35,
+    bilateral_sigma_space: int = 35,
+) -> Image.Image:
+    """Denoise and quantize an RGBA residual patch before VTracer sees it.
+
+    Refinement extracts original pixels along defect regions. Those pixels still
+    carry JPEG/AA noise, so tracing them raw produces choppy overlay paths that
+    stack on the base SVG and worsen the score. Bilateral + palette snap keeps
+    edges crisp while flattening interior color variation.
+    """
+    arr = np.array(rgba.convert("RGBA"))
+    if not (arr[..., 3] > 0).any():
+        return rgba
+
+    rgb = arr[..., :3]
+    if bilateral:
+        rgb = cv2.bilateralFilter(
+            rgb,
+            d=bilateral_d,
+            sigmaColor=float(bilateral_sigma_color),
+            sigmaSpace=float(bilateral_sigma_space),
+        )
+    if palette_size > 0:
+        rgb = _kmeans_quantize(rgb, palette_size)
+
+    out = arr.copy()
+    out[..., :3] = rgb
+    return Image.fromarray(out, mode="RGBA")
+
+
 def _kmeans_quantize(arr: np.ndarray, k: int) -> np.ndarray:
     """Snap every pixel to one of ``k`` k-means cluster centroids.
 

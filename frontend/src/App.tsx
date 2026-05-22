@@ -9,6 +9,8 @@ import {
   type QualityTier,
   type VectorizeSource,
 } from "./api/client";
+import InfoSections from "./components/InfoSections";
+import { DEFAULT_ENGINE, ENGINE_OPTIONS, engineOption } from "./engineOptions";
 import ProgressStepper from "./components/ProgressStepper";
 import SvgPreview from "./components/SvgPreview";
 import { fitContain } from "./utils/fitContain";
@@ -57,8 +59,8 @@ export default function App() {
   );
   const uploadBoxRef = useRef<HTMLDivElement>(null);
   const uploadImgRef = useRef<HTMLImageElement>(null);
-  const [quality, setQuality] = useState<QualityTier>("standard");
-  const [engine, setEngine] = useState<EngineChoice>("auto");
+  const [quality, setQuality] = useState<QualityTier>("high");
+  const [engine, setEngine] = useState<EngineChoice>(DEFAULT_ENGINE);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -235,11 +237,27 @@ export default function App() {
 
   return (
     <>
-      <h1>SvgBot</h1>
-      <p className="subtitle">
-        High-quality image → fontless SVG. StarVector + VTracer with DinoScore ranking.
-        Agent API: $0.50/conversion via MPP / x402 — see GET /.well-known/agent-api
-      </p>
+      <header className="site-header">
+        <img
+          src="/assets/SvgBot.png"
+          alt="SvgBot"
+          className="site-logo"
+        />
+        <div className="site-header-text">
+          <h1>SvgBot</h1>
+          <p className="subtitle">
+            <strong>The most accurate image → fontless SVG converter available!</strong> Not by picking
+            one tracer and hoping for the best, but by running multiple vectorization engines in
+            parallel, scoring every candidate with perceptual metrics, and iteratively diffing,
+            patching, and merging corrective paths until fidelity plateaus.
+          </p>
+          <p className="subtitle subtitle-secondary">
+            SvgBot combines StarVector (neural im2svg, GPU), VTracer (classical color tracing), DinoScore
+            / LPIPS candidate ranking, and a residual-overlay refinement loop on every conversion that
+            surgically fixes whatever the base engine missed.
+          </p>
+        </div>
+      </header>
 
       {backendOk === false && (
         <p className="error">
@@ -320,21 +338,25 @@ export default function App() {
             value={quality}
             onChange={(e) => setQuality(e.target.value as QualityTier)}
           >
-            <option value="standard">Standard</option>
+            <option value="standard">Faster</option>
             <option value="high">High (more candidates)</option>
           </select>
         </label>
-        <label>
+        <label className="engine-field">
           Engine
           <select
             value={engine}
             onChange={(e) => setEngine(e.target.value as EngineChoice)}
           >
-            <option value="auto">Auto (best of all)</option>
-            <option value="starvector">StarVector</option>
-            <option value="vtracer">VTracer</option>
-            <option value="vtracer_smooth">VTracer (smooth curves)</option>
+            {ENGINE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.selectLabel}
+              </option>
+            ))}
           </select>
+          {engineOption(engine).hint ? (
+            <p className="engine-hint">{engineOption(engine).hint}</p>
+          ) : null}
         </label>
         <button type="button" disabled={!canSubmit} onClick={run}>
           {busy ? "Converting…" : "Convert to SVG"}
@@ -453,6 +475,8 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <InfoSections />
     </>
   );
 }

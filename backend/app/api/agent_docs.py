@@ -160,7 +160,8 @@ def build_agent_api(request: Request) -> AgentApiDocument:
                 payment_required=payments_on,
                 description=(
                     "Start conversion. Multipart fields: file (image), quality (standard|high), "
-                    "engine (auto|starvector|vtracer), fontless (true|false). Returns { job_id }."
+                    "engine (auto|starvector|vtracer|vtracer_smooth, default auto), "
+                    "fontless (true|false). Returns { job_id }."
                 ),
             ),
             AgentApiEndpoint(

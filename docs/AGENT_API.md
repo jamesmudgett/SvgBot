@@ -58,7 +58,7 @@ pip install -r backend/requirements-payments.txt
 |-------|------|---------|-------------|
 | `file` | file | required | PNG, JPEG, WebP, etc. (max 20 MB) |
 | `quality` | string | `standard` | `standard` or `high` (more StarVector candidates) |
-| `engine` | string | `auto` | `auto`, `starvector`, or `vtracer` |
+| `engine` | string | `auto` | `auto` (default, all engines), `vtracer_smooth` (logos, icons), `starvector` (illustrations, GPU), `vtracer` (photos, gradients) |
 | `fontless` | string | `true` | Strip text elements from SVG |
 
 **Response (200):**
@@ -119,7 +119,7 @@ with open("logo.png", "rb") as f:
     r = mpp_client.post(  # pseudo — use your MPP HTTP client
         f"{BASE}/api/vectorize",
         files={"file": ("logo.png", f, "image/png")},
-        data={"quality": "standard", "engine": "auto", "fontless": "true"},
+        data={"quality": "standard", "fontless": "true"},
     )
 r.raise_for_status()
 job_id = r.json()["job_id"]
@@ -158,7 +158,6 @@ BASE=https://your-host
 curl -i -X POST "$BASE/api/vectorize" \
   -F "file=@logo.png" \
   -F "quality=standard" \
-  -F "engine=auto" \
   -F "fontless=true"
 # → 402, read PAYMENT-REQUIRED
 
@@ -167,7 +166,6 @@ curl -X POST "$BASE/api/vectorize" \
   -H "PAYMENT-SIGNATURE: <base64-payload>" \
   -F "file=@logo.png" \
   -F "quality=standard" \
-  -F "engine=auto" \
   -F "fontless=true"
 # → 200 {"job_id":"..."}
 ```

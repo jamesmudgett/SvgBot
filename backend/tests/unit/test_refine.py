@@ -127,13 +127,13 @@ def test_merge_overlay_skips_transform_when_viewbox_matches(base_svg_red_square:
     assert "transform=" not in merged
 
 
-def test_iterative_refine_disabled_returns_base(
+def test_iterative_refine_skipped_when_max_passes_zero(
     synthetic_image: Image.Image, base_svg_red_square: str, monkeypatch: pytest.MonkeyPatch
 ):
     settings = get_settings()
-    monkeypatch.setattr(settings, "refine_enabled", False)
+    monkeypatch.setattr(settings, "refine_max_passes", 0)
     result = refine.iterative_refine(
-        synthetic_image, base_svg_red_square, 80, 80, max_passes=3
+        synthetic_image, base_svg_red_square, 80, 80, max_passes=0
     )
     assert result.passes == 0
     assert result.svg == base_svg_red_square
@@ -146,7 +146,6 @@ def test_iterative_refine_empty_masks_do_not_burn_failure_budget(
     loop must rotate through all variants and exit cleanly — not bail after
     `max_consecutive_failures` empty passes."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "refine_enabled", True)
     monkeypatch.setattr(settings, "refine_max_passes", 20)
 
     perfect = Image.new("RGB", (40, 40), (255, 255, 255))
@@ -180,7 +179,6 @@ def test_iterative_refine_tries_all_variants_before_stopping_on_rejects(
 ):
     """Rejected overlays must not stop after three variants; try the full set."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "refine_enabled", True)
     monkeypatch.setattr(settings, "refine_max_passes", 20)
     monkeypatch.setattr(settings, "refine_min_delta", 0.0001)
 
@@ -215,7 +213,6 @@ def test_iterative_refine_improves_score(
     synthetic_image: Image.Image, base_svg_red_square: str, monkeypatch: pytest.MonkeyPatch
 ):
     settings = get_settings()
-    monkeypatch.setattr(settings, "refine_enabled", True)
     monkeypatch.setattr(settings, "refine_max_passes", 2)
     monkeypatch.setattr(settings, "refine_min_delta", 0.0001)
 

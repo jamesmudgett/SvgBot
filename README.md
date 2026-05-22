@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="frontend/public/assets/SvgBot.png" alt="SvgBot" />
+</p>
+
 # svg.bot
 
 **The most accurate image → fontless SVG converter available!** Not by picking one tracer and hoping for the best, but by running multiple vectorization engines in parallel, scoring every candidate with perceptual metrics, and iteratively **diffing, patching, and merging** corrective paths until fidelity plateaus.
 
-SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, and an optional **residual-overlay refinement loop** that surgically fixes whatever the base engine missed. Optional **MPP / x402** payments let autonomous agents pay per conversion.
+SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, and a **residual-overlay refinement loop** on every conversion that surgically fixes whatever the base engine missed. Optional **MPP / x402** payments let autonomous agents pay per conversion.
 
 ---
 
@@ -16,13 +20,22 @@ The input image is loaded, resized (long edge capped at 2048 px), and analyzed f
 
 ### Phase 2 — Multi-engine candidate generation
 
-In `engine=auto` mode (default), SvgBot generates several independent SVG candidates and keeps them all in an ensemble:
+The default engine is **`auto`**: SvgBot runs StarVector, VTracer, and VTracer smooth in parallel, ranks them by DinoScore (with an LPIPS tiebreak on logos when scores are close), and refines the winner (**best when you want maximum accuracy and can wait longer**). Pick a single engine when you know what fits:
 
-| Engine | What it does |
-|--------|----------------|
-| **StarVector** | A vision-language model (`starvector-1b-im2svg` or `8b`) generates SVG path markup directly from the image. Runs `k` stochastic samples (3 standard / 5 high quality); each sample is rasterized and scored. The best sample becomes the StarVector candidate. |
-| **VTracer** | Classical color-region tracing. **Auto-tune** sweeps a parameter grid (`LOGO_GRID` for logos, `DEFAULT_GRID` otherwise) — varying `colormode`, `color_precision`, `filter_speckle`, `path_precision`, `corner_threshold`, etc. — and keeps the highest-scoring result. |
-| **VTracer smooth** | For non-photo images: bilateral-filter + k-means palette quantization (`clean_for_tracing`) produces flat color regions with crisp edges, then VTracer traces with a **smooth-curve grid** (`LOGO_SMOOTH_GRID`) tuned for fewer control points and cleaner splines. Still scored against the **original** image so it competes fairly. |
+| Engine | Best for | What it does |
+|--------|----------|--------------|
+| **Auto** | Maximum accuracy | Runs all engines below in parallel; keeps the highest-scoring candidate. Default. |
+| **VTracer smooth** | Logos, icons, brand marks | Bilateral filter + k-means palette quantization (`clean_for_tracing`) produces flat color regions with crisp edges, then VTracer traces with a **smooth-curve grid** (`LOGO_SMOOTH_GRID`) tuned for fewer control points and cleaner splines. Still scored against the **original** image. |
+| **StarVector** | Illustrations, complex artwork | A vision-language model (`starvector-1b-im2svg` or `8b`) generates SVG path markup directly from the image. Runs `k` stochastic samples (3 standard / 5 high quality); each sample is rasterized and scored. Needs a CUDA GPU. |
+| **VTracer** | Photos, gradients, many colors | Classical color-region tracing on the raw image. **Auto-tune** sweeps a parameter grid (`LOGO_GRID` for logos, `DEFAULT_GRID` otherwise) and keeps the highest-scoring result. |
+
+**Inside Auto**, three independent candidates are generated:
+
+| Candidate | Best for | Notes |
+|-----------|----------|-------|
+| **StarVector** | Illustrations, complex artwork | Neural im2svg; skipped when CUDA is unavailable. |
+| **VTracer** | Photos, gradients | Raw-image tracing with auto-tuned grids. |
+| **VTracer smooth** | Logos, flat fills | Palette-quantized input + smooth-curve grid; skipped for photos. |
 
 Each candidate is rasterized back to pixels and scored with:
 
@@ -33,7 +46,7 @@ All candidates are sorted by DinoScore; the winner becomes the **base SVG** for 
 
 ### Phase 3 — Iterative residual diff, vectorize, merge
 
-This is the core accuracy advantage. Even the best single-pass SVG leaves pixels that don't match the source — missing letter counters, softened corners, anti-aliasing gaps, small color patches. SvgBot closes that gap with up to **20 refinement passes** (`REFINE_MAX_PASSES`).
+Every conversion runs refinement. Even the best single-pass SVG leaves pixels that don't match the source: missing letter counters, softened corners, anti-aliasing gaps, small color patches. SvgBot closes that gap with up to **20 refinement passes** (`REFINE_MAX_PASSES`, default 20).
 
 Each pass:
 
@@ -223,10 +236,9 @@ STARVECTOR_MODEL=starvector/starvector-1b-im2svg
 HF_TOKEN=hf_...   # recommended for faster Hugging Face downloads
 ```
 
-Refinement tuning (all optional):
+Refinement tuning (optional; refinement always runs unless `REFINE_MAX_PASSES=0`):
 
 ```env
-REFINE_ENABLED=true
 REFINE_MAX_PASSES=20
 REFINE_MIN_DELTA=0.0005
 REFINE_RESIDUAL_THRESHOLD=12

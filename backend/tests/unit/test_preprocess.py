@@ -58,3 +58,20 @@ def test_clean_for_tracing_illustration_skips_palette_snap():
     # than the 4-color logo path.
     unique = len(np.unique(cleaned.reshape(-1, 3), axis=0))
     assert unique > 4
+
+
+def test_clean_rgba_for_tracing_collapses_opaque_pixels():
+    rgb = _noisy_logo()
+    arr = np.array(rgb.convert("RGBA"))
+    arr[..., 3] = 0
+    arr[25:55, 15:65, 3] = 255
+    rgba = Image.fromarray(arr, mode="RGBA")
+
+    cleaned = preprocess.clean_rgba_for_tracing(rgba, palette_size=4)
+    cleaned_arr = np.array(cleaned)
+
+    opaque = cleaned_arr[..., 3] > 0
+    opaque_unique = len(np.unique(cleaned_arr[opaque][..., :3], axis=0))
+    assert opaque_unique <= 4
+    assert not (cleaned_arr[..., 3] > 0).any() or opaque.any()
+    assert np.all(cleaned_arr[~opaque, 3] == 0)

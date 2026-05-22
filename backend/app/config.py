@@ -83,9 +83,8 @@ class Settings(BaseSettings):
 
     job_ttl_seconds: int = 3600
 
-    # Cross-engine ensemble + residual refinement
+    # Cross-engine ensemble + residual refinement (always runs; set max_passes=0 to skip)
     auto_use_ensemble: bool = True
-    refine_enabled: bool = True
     refine_max_passes: int = 20
     refine_min_delta: float = 0.0005
     refine_residual_threshold: int = 12

@@ -1,0 +1,4 @@
+# Official StarVector package + inference dependencies.
+# If flash_attn fails on Windows, use run.sh (installs with --no-deps + requirements-starvector-deps.txt).
+git+https://github.com/joanrod/star-vector.git
+-r requirements-starvector-deps.txt

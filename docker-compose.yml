@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.cuda
+    ports:
+      - "8000:8000"
+    environment:
+      - STARVECTOR_ENABLED=${STARVECTOR_ENABLED:-true}
+      - PAYMENTS_ENABLED=${PAYMENTS_ENABLED:-false}
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  web:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  huggingface_cache:

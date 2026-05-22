@@ -1,0 +1,24 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+pydantic-settings>=2.6.0
+Pillow>=10.4.0
+numpy>=1.26.0
+opencv-python-headless>=4.10.0
+vtracer>=0.6.15
+cairosvg>=2.7.1
+svglib>=1.5.0
+reportlab>=4.2.0
+pymupdf>=1.24.0
+httpx>=0.27.0
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+
+# Quality metrics (CPU-friendly subset; full Dino uses torch)
+torch>=2.2.0
+torchvision>=0.17.0
+lpips>=0.1.4
+
+# StarVector requires transformers 4.x (5.x breaks from_pretrained for this model)
+transformers>=4.46.0,<5.0.0
+accelerate>=1.1.0

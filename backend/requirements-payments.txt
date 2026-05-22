@@ -1,0 +1,3 @@
+-r requirements.txt
+x402[fastapi]>=2.10.0
+pympp>=0.8.0

@@ -1,0 +1,383 @@
+:root {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+  color: #e8eaed;
+  background: #0f1117;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+h1 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.25rem;
+}
+
+.subtitle {
+  color: #9aa0a6;
+  margin: 0 0 2rem;
+}
+
+.panel {
+  background: #1a1d26;
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #9aa0a6;
+}
+
+select,
+button {
+  font: inherit;
+}
+
+select {
+  background: #0f1117;
+  color: inherit;
+  border: 1px solid #3c4454;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+button {
+  background: #4f8cff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dropzone {
+  border: 2px dashed #3c4454;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.dropzone:hover,
+.dropzone.active {
+  border-color: #4f8cff;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+/* Upload/original: fixed preview panel, image scaled to fit */
+.preview-box,
+.preview-box-upload {
+  background: #0f1117;
+  border-radius: 8px;
+  min-height: 280px;
+  height: min(360px, 50vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0.5rem;
+}
+
+.preview-box-vector {
+  background: #1a1d26;
+}
+
+.preview-dims {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: #9aa0a6;
+}
+
+.preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.preview-media {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  max-height: 340px;
+  border: none;
+  background: transparent;
+  display: block;
+}
+
+.preview-placeholder {
+  color: #666;
+}
+
+.metrics {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  color: #9aa0a6;
+}
+
+.metrics strong {
+  color: #e8eaed;
+}
+
+.error {
+  color: #ff6b6b;
+  margin-top: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 8px;
+}
+
+.progress {
+  color: #4f8cff;
+  font-size: 0.9rem;
+}
+
+/* ---------- Source tabs (Upload | URL) ---------- */
+.source-panel {
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #2a2f3a;
+  margin: 0 -0.5rem 1rem;
+  padding: 0 0.5rem;
+}
+
+.tab {
+  background: transparent;
+  color: #9aa0a6;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: #cdd2d8;
+}
+
+.tab.active {
+  color: #e8eaed;
+  border-bottom-color: #4f8cff;
+}
+
+.url-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.url-input {
+  background: #0f1117;
+  color: inherit;
+  border: 1px solid #3c4454;
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  font: inherit;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: #4f8cff;
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
+}
+
+.url-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #6c727b;
+}
+
+/* ---------- Vertical progress stepper ---------- */
+.progress-panel {
+  padding: 1rem 1.25rem;
+  background: linear-gradient(180deg, rgba(79, 140, 255, 0.06), transparent 60%),
+    #1a1d26;
+  border-color: rgba(79, 140, 255, 0.25);
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.progress-headline {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.progress-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4f8cff;
+  box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.6);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+.progress-pulse.done {
+  background: #34c759;
+  animation: none;
+  box-shadow: 0 0 8px rgba(52, 199, 89, 0.5);
+}
+
+.progress-pulse.failed {
+  background: #ff6b6b;
+  animation: none;
+  box-shadow: 0 0 8px rgba(255, 107, 107, 0.5);
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(79, 140, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 140, 255, 0);
+  }
+}
+
+.progress-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #6c727b;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.progress-step-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid #3c4454;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: #0f1117;
+}
+
+.progress-step-done {
+  color: #cdd2d8;
+}
+
+.progress-step-done .progress-step-icon {
+  background: #34c759;
+  border-color: #34c759;
+  color: #06210e;
+}
+
+.progress-step-active {
+  color: #e8eaed;
+  background: rgba(79, 140, 255, 0.08);
+}
+
+.progress-step-active .progress-step-icon {
+  border-color: #4f8cff;
+  background: transparent;
+}
+
+.progress-step-active .progress-step-label {
+  font-weight: 600;
+}
+
+.progress-step-failed {
+  color: #ff9b9b;
+}
+
+.progress-step-failed .progress-step-icon {
+  background: #ff6b6b;
+  border-color: #ff6b6b;
+  color: #2a0808;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(79, 140, 255, 0.25);
+  border-top-color: #4f8cff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

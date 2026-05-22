@@ -1,6 +1,6 @@
 # svg.bot
 
-**The most accurate image → fontless SVG converter available** — not by picking one tracer and hoping for the best, but by running multiple vectorization engines in parallel, scoring every candidate with perceptual metrics, and iteratively **diffing, patching, and merging** corrective paths until fidelity plateaus.
+**The most accurate image → fontless SVG converter available!** Not by picking one tracer and hoping for the best, but by running multiple vectorization engines in parallel, scoring every candidate with perceptual metrics, and iteratively **diffing, patching, and merging** corrective paths until fidelity plateaus.
 
 SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, and an optional **residual-overlay refinement loop** that surgically fixes whatever the base engine missed. Optional **MPP / x402** payments let autonomous agents pay per conversion.
 
@@ -84,6 +84,15 @@ bash run.sh
 That creates `backend/.venv` if needed, installs Python and npm dependencies (including StarVector), starts the FastAPI backend on port 8000 and the Vite frontend on port 5173, then opens both services. Press `Ctrl+C` to stop.
 
 Open **http://127.0.0.1:5173** in your browser.
+
+### Convert an image
+
+The web UI accepts input two ways:
+
+- **Upload** — drag and drop a file or click to browse (PNG, JPG, WebP, GIF, and other common formats).
+- **From URL** — paste a direct link to a publicly reachable image; the backend downloads it server-side before vectorizing.
+
+Choose quality and engine options, then run the conversion. The result SVG can be previewed and downloaded when the job finishes.
 
 Override ports with environment variables:
 
@@ -268,7 +277,7 @@ Paid flow: pay on `POST /api/vectorize` → `{ "job_id" }` → poll `GET /api/jo
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/vectorize` | Start conversion (multipart: `file`, `quality`, `engine`, `fontless`) |
+| POST | `/api/vectorize` | Start conversion (multipart: `file` **or** `image_url`, plus `quality`, `engine`, `fontless`) |
 | GET | `/api/jobs/{id}` | Job status + result (includes `refine_passes`, `refine_coverage`, `dino_score`) |
 | GET | `/api/jobs/{id}/svg` | Download SVG |
 | GET | `/.well-known/agent-api` | Agent API instructions (JSON) |

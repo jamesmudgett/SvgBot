@@ -348,7 +348,6 @@ def iterative_refine(
     min_delta: float | None = None,
     min_mask_ratio: float | None = None,
     threshold: int | None = None,
-    max_consecutive_failures: int = 3,
 ) -> RefineResult:
     """Repeatedly diff-and-patch the SVG until the score plateaus.
 
@@ -358,9 +357,9 @@ def iterative_refine(
     3. Mask significant differences; bail if too small.
     4. Vectorize the residual with the next parameter variant.
     5. Merge into a candidate SVG and re-score.
-    6. Accept if score improved by at least `min_delta`; otherwise count a failure
-       and try the next variant. After `max_consecutive_failures` rejections in a
-       row, stop.
+    6. Accept if score improved by at least `min_delta`; otherwise count a
+       rejection and try the next variant. After every variant has been tried
+       without an acceptance, stop.
     """
     settings = get_settings()
     max_passes = max_passes if max_passes is not None else settings.refine_max_passes
@@ -382,8 +381,9 @@ def iterative_refine(
     initial_score = best_score
     total_coverage = 0.0
     accepted = 0
-    consecutive_failures = 0
     consecutive_empty = 0
+    rejections_since_accept = 0
+    overlay_attempts = 0
     total_variants = len(_PASS_VARIANTS)
 
     for pass_idx in range(max_passes):
@@ -437,18 +437,19 @@ def iterative_refine(
             logger.warning(
                 "refine pass %d: vectorize_residual failed: %s", pass_idx + 1, exc
             )
-            consecutive_failures += 1
-            if consecutive_failures >= max_consecutive_failures:
+            rejections_since_accept += 1
+            if rejections_since_accept >= total_variants:
                 break
             continue
 
+        overlay_attempts += 1
         merged = merge_overlay(best_svg, overlay_svg)
         try:
             new_score, _ = score_svg(original, merged, width, height)
         except Exception as exc:
             logger.warning("refine pass %d: scoring failed: %s", pass_idx + 1, exc)
-            consecutive_failures += 1
-            if consecutive_failures >= max_consecutive_failures:
+            rejections_since_accept += 1
+            if rejections_since_accept >= total_variants:
                 break
             continue
 
@@ -458,7 +459,7 @@ def iterative_refine(
             best_score = new_score
             total_coverage = max(total_coverage, coverage)
             accepted += 1
-            consecutive_failures = 0
+            rejections_since_accept = 0
             logger.info(
                 "refine pass %d (variant %d, threshold %d): accepted "
                 "score=%.4f delta=%.4f coverage=%.3f",
@@ -470,30 +471,39 @@ def iterative_refine(
                 coverage,
             )
         else:
-            consecutive_failures += 1
+            rejections_since_accept += 1
             logger.info(
                 "refine pass %d (variant %d, threshold %d): rejected "
-                "delta=%.4f (best=%.4f) failures=%d/%d",
+                "delta=%.4f (best=%.4f) rejections=%d/%d",
                 pass_idx + 1,
                 variant_idx,
                 threshold_eff,
                 delta,
                 best_score,
-                consecutive_failures,
-                max_consecutive_failures,
+                rejections_since_accept,
+                total_variants,
             )
-            if consecutive_failures >= max_consecutive_failures:
+            if rejections_since_accept >= total_variants:
                 logger.info(
-                    "refine: %d consecutive non-improving passes, stopping",
-                    consecutive_failures,
+                    "refine: all %d variants tried without improvement, stopping",
+                    total_variants,
                 )
                 break
 
-    if accepted == 0:
+    if accepted == 0 and overlay_attempts > 0:
         logger.info(
             "refine: no overlay improved the score; base output kept (score %.4f). "
-            "Remaining diff is likely sub-pixel anti-aliasing that residual-overlay "
-            "refinement cannot improve.",
+            "%d overlay attempt(s) were merged and scored but worsened or did not "
+            "beat the base (remaining defects may be edge-adjacent geometry the "
+            "residual-overlay pass cannot patch cleanly).",
+            initial_score,
+            overlay_attempts,
+        )
+    elif accepted == 0:
+        logger.info(
+            "refine: no overlay improved the score; base output kept (score %.4f). "
+            "Remaining diff is likely sub-pixel anti-aliasing or was filtered out "
+            "by edge/area masks.",
             initial_score,
         )
 

@@ -173,6 +173,44 @@ def test_iterative_refine_empty_masks_do_not_burn_failure_budget(
     assert len(rasterize_calls) == len(refine._PASS_VARIANTS)
 
 
+def test_iterative_refine_tries_all_variants_before_stopping_on_rejects(
+    synthetic_image: Image.Image,
+    base_svg_red_square: str,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Rejected overlays must not stop after three variants; try the full set."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "refine_enabled", True)
+    monkeypatch.setattr(settings, "refine_max_passes", 20)
+    monkeypatch.setattr(settings, "refine_min_delta", 0.0001)
+
+    rasterize_calls: list[int] = []
+    real_rasterize = refine.rasterize_svg
+
+    def track_rasterize(*args, **kwargs):
+        rasterize_calls.append(1)
+        return real_rasterize(*args, **kwargs)
+
+    real_score_svg = refine.score_svg
+
+    def reject_overlays(original, svg, width, height):
+        if "vb-refine" in svg:
+            base_score, lpips = real_score_svg(
+                original, base_svg_red_square, width, height
+            )
+            return base_score - 0.05, lpips
+        return real_score_svg(original, svg, width, height)
+
+    monkeypatch.setattr(refine, "rasterize_svg", track_rasterize)
+    monkeypatch.setattr(refine, "score_svg", reject_overlays)
+
+    result = refine.iterative_refine(synthetic_image, base_svg_red_square, 80, 80)
+
+    assert result.passes == 0
+    assert result.svg == base_svg_red_square
+    assert len(rasterize_calls) == len(refine._PASS_VARIANTS)
+
+
 def test_iterative_refine_improves_score(
     synthetic_image: Image.Image, base_svg_red_square: str, monkeypatch: pytest.MonkeyPatch
 ):

@@ -64,8 +64,9 @@ def _load_model():
     except ImportError as e:
         raise StarVectorUnavailable(
             "starvector package not installed. Run: "
-            "pip install -r requirements-starvector.txt "
-            "(see README if flash_attn fails on Windows)"
+            "pip install -r backend/requirements-starvector-deps.txt && "
+            "pip install --no-deps -r backend/requirements-starvector-package.txt "
+            "(see README)"
         ) from e
 
     tf_major = int(transformers.__version__.split(".", maxsplit=1)[0])
@@ -140,7 +141,10 @@ def availability() -> dict:
         info["reason"] = "ok"
         return info
     except ImportError:
-        info["reason"] = "starvector package not installed (pip install -r requirements-starvector.txt)"
+        info["reason"] = (
+            "starvector package not installed (pip install -r backend/requirements-starvector-deps.txt "
+            "&& pip install --no-deps -r backend/requirements-starvector-package.txt)"
+        )
         return info
 
 

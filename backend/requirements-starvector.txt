@@ -1,4 +1,11 @@
-# Official StarVector package + inference dependencies.
-# If flash_attn fails on Windows, use run.sh (installs with --no-deps + requirements-starvector-deps.txt).
-git+https://github.com/joanrod/star-vector.git
+# Official StarVector (git) + SvgBot-maintained deps.
+#
+# Always install transitive deps separately: upstream declares torch==2.5.1, which pip cannot
+# install on recent Python versions. Use deps first, then the package without its metadata deps.
+#
+#   pip install -r backend/requirements-starvector-deps.txt
+#   pip install --no-deps -r backend/requirements-starvector-package.txt
+#
+# Or use `bash run.sh` from the repo root (recommended).
+
 -r requirements-starvector-deps.txt

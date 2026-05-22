@@ -219,14 +219,14 @@ pip install -r backend/requirements-gpu.txt
 
 ### StarVector package
 
-StarVector requires **transformers 4.49** (5.x causes meta-device load failures):
+StarVector requires **transformers 4.49** (5.x causes meta-device load failures). Install deps first (includes flexible **torch≥2.6** wheels), then the git package **without** its upstream metadata deps — upstream pins `torch==2.5.1`, which is often missing from PyPI on newer Python.
 
 ```bash
-pip install -r backend/requirements-starvector.txt
-pip install "transformers==4.49.0" "tokenizers==0.21.1"
+pip install -r backend/requirements-starvector-deps.txt
+pip install --no-deps -r backend/requirements-starvector-package.txt
 ```
 
-`bash run.sh` installs this automatically. On Windows, if `flash_attn` fails, the script retries with `--no-deps` + `requirements-starvector-deps.txt`.
+`bash run.sh` does both steps automatically. Optional upstream extras such as **`flash_attn`** are not pulled in (SvgBot defaults to **`STARVECTOR_ATTN_IMPLEMENTATION=eager`**); install `flash_attn` yourself only if you switch attention modes and your platform supports builds.
 
 Configure in `backend/.env`:
 

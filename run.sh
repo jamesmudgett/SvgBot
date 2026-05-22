@@ -81,14 +81,10 @@ install_starvector() {
     return
   fi
 
-  echo "Installing StarVector package (requirements-starvector.txt)..."
-  if "${venv_py}" -m pip install -q -r "${ROOT}/backend/requirements-starvector.txt"; then
-    return
-  fi
-
-  echo "Full StarVector install failed (often flash_attn on Windows). Retrying without deps..."
-  "${venv_py}" -m pip install -q --no-deps "git+https://github.com/joanrod/star-vector.git"
+  echo "Installing StarVector deps (requirements-starvector-deps.txt)..."
   "${venv_py}" -m pip install -q -r "${ROOT}/backend/requirements-starvector-deps.txt"
+  echo "Installing StarVector package from git (--no-deps; upstream pins uninstallable torch)..."
+  "${venv_py}" -m pip install -q --no-deps -r "${ROOT}/backend/requirements-starvector-package.txt"
 }
 
 kill_port() {

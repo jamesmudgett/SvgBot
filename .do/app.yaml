@@ -22,6 +22,29 @@
 name: svgbot
 region: nyc
 
+# Custom domains attached to the App. Both the apex (svg.bot) and the
+# www. alias get a free Let's Encrypt cert managed by App Platform.
+#
+# DNS setup, do ONE of the following before the first deploy or the cert
+# issuance will fail:
+#
+#   (a) If your DNS lives in DigitalOcean: uncomment the `zone:` lines
+#       below. App Platform will create the required A / AAAA / CNAME
+#       records in that zone for you.
+#
+#   (b) If your DNS lives elsewhere (Cloudflare, Route 53, Namecheap, ...):
+#       leave `zone:` commented out and add these records manually:
+#         svg.bot       ALIAS or ANAME or A   -> <app>.ondigitalocean.app
+#         www.svg.bot   CNAME                 -> <app>.ondigitalocean.app
+#       Find <app>.ondigitalocean.app under App Settings -> Domains.
+domains:
+  - domain: svg.bot
+    type: PRIMARY
+    # zone: svg.bot
+  - domain: www.svg.bot
+    type: ALIAS
+    # zone: svg.bot
+
 # Single ingress that fans out by path prefix. /api, /health, /.well-known
 # go to the FastAPI service; everything else falls through to the static
 # site (React Router handles client-side routing from there).

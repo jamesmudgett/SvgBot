@@ -1,0 +1,28 @@
+---
+description: Never use em dashes in prose or docs
+alwaysApply: true
+---
+
+# No em dashes
+
+**Hard rule:** Do not use em dashes (`—`, U+2014) or en dashes (`–`, U+2013) as punctuation in user-facing text, README/docs, commit messages, PR descriptions, UI copy, or chat replies.
+
+Use instead:
+- A period or exclamation for a new sentence
+- A comma for a light break
+- A colon before an explanation or list
+- Parentheses for asides
+- A hyphen `-` only for compound words or ranges (e.g. `image-to-SVG`, `8-48 px`)
+
+## Examples
+
+Bad: `The converter available — not by picking one tracer`
+Good: `The converter available! Not by picking one tracer.`
+
+Bad: `Phase 1 — Preprocess`
+Good: `Phase 1: Preprocess` or `Phase 1. Preprocess`
+
+Bad: `DinoScore — ResNet-50 embedding`
+Good: `DinoScore: ResNet-50 embedding` or `DinoScore (ResNet-50 embedding)`
+
+When editing existing files, replace em dashes you touch or that fall in scope of the task.

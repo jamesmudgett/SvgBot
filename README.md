@@ -196,7 +196,7 @@ source .venv/bin/activate          # macOS / Linux
 # .venv\Scripts\activate           # Windows
 pip install -r requirements.txt
 cp .env.example .env               # copy .env.example .env  on Windows
-uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --reload-dir app --reload-exclude '*.pyc' --reload-exclude '.venv/*' --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend (manual)

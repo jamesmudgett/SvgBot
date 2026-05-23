@@ -10,7 +10,7 @@ import {
   type VectorizeSource,
 } from "./api/client";
 import InfoSections from "./components/InfoSections";
-import { DEFAULT_ENGINE, ENGINE_OPTIONS, engineOption } from "./engineOptions";
+import { DEFAULT_ENGINE, ENGINE_OPTIONS } from "./engineOptions";
 import ProgressStepper from "./components/ProgressStepper";
 import SvgPreview from "./components/SvgPreview";
 import { fitContain } from "./utils/fitContain";
@@ -59,7 +59,7 @@ export default function App() {
   );
   const uploadBoxRef = useRef<HTMLDivElement>(null);
   const uploadImgRef = useRef<HTMLImageElement>(null);
-  const [quality, setQuality] = useState<QualityTier>("high");
+  const [quality, setQuality] = useState<QualityTier>("standard");
   const [engine, setEngine] = useState<EngineChoice>(DEFAULT_ENGINE);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<JobStatus | null>(null);
@@ -338,8 +338,8 @@ export default function App() {
             value={quality}
             onChange={(e) => setQuality(e.target.value as QualityTier)}
           >
-            <option value="standard">Faster</option>
-            <option value="high">High (more candidates)</option>
+            <option value="standard">Faster (8 refine passes, fewer candidates)</option>
+            <option value="high">High (25 refine passes, more candidates)</option>
           </select>
         </label>
         <label className="engine-field">
@@ -354,9 +354,6 @@ export default function App() {
               </option>
             ))}
           </select>
-          {engineOption(engine).hint ? (
-            <p className="engine-hint">{engineOption(engine).hint}</p>
-          ) : null}
         </label>
         <button type="button" disabled={!canSubmit} onClick={run}>
           {busy ? "Converting…" : "Convert to SVG"}

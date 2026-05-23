@@ -209,6 +209,40 @@ def test_iterative_refine_tries_all_variants_before_stopping_on_rejects(
     assert len(rasterize_calls) == len(refine._PASS_VARIANTS)
 
 
+def test_iterative_refine_respects_explicit_max_passes_cap(
+    synthetic_image: Image.Image,
+    base_svg_red_square: str,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The orchestrator's quality dropdown maps to an explicit ``max_passes``
+    argument that must override the settings default. Otherwise 'Faster' quality
+    would still grind through 20+ refinement passes.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "refine_max_passes", 50)
+    monkeypatch.setattr(settings, "refine_min_delta", 0.0001)
+
+    rasterize_calls: list[int] = []
+    real_rasterize = refine.rasterize_svg
+
+    def track_rasterize(*args, **kwargs):
+        rasterize_calls.append(1)
+        return real_rasterize(*args, **kwargs)
+
+    monkeypatch.setattr(refine, "rasterize_svg", track_rasterize)
+
+    refine.iterative_refine(
+        synthetic_image,
+        base_svg_red_square,
+        80,
+        80,
+        max_passes=3,
+    )
+    assert len(rasterize_calls) <= 3, (
+        f"max_passes=3 must cap rasterize calls; got {len(rasterize_calls)}"
+    )
+
+
 def test_iterative_refine_improves_score(
     synthetic_image: Image.Image, base_svg_red_square: str, monkeypatch: pytest.MonkeyPatch
 ):

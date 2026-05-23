@@ -51,6 +51,45 @@ def classify_image(stats: dict) -> str:
     return "photo"
 
 
+def is_monochrome_logo(
+    arr: np.ndarray, *, dominance_threshold: float = 0.92
+) -> bool:
+    """Return True iff an image is effectively two distinct colors.
+
+    We bucket each RGB channel into 8 coarse bins (8^3 = 512 buckets) so JPEG
+    noise and anti-aliasing collapse into a single bucket per dominant tone,
+    then check whether the top 2 most-populated buckets cover at least
+    ``dominance_threshold`` of the image.
+
+    Why bucketing instead of k-means: k-means on a high-contrast 2-color image
+    with even a tiny variance imbalance tends to split the larger cluster, which
+    silently breaks the "top 2 clusters cover X%" heuristic.
+
+    Designed to trigger on brand-mark logos like cleo (cream pill + brown text
+    on brown background), where exactly 2 buckets dominate, while rejecting
+    3-color logos (where 3 buckets each carry a meaningful share) and photos
+    (where hundreds of buckets fragment the population).
+    """
+    if arr.ndim == 3 and arr.shape[2] == 4:
+        arr = arr[..., :3]
+    if arr.ndim != 3 or arr.shape[2] != 3:
+        return False
+
+    bucketed = (arr.astype(np.uint16) // 64).astype(np.uint8)
+    flat_keys = (
+        bucketed[..., 0].astype(np.uint32) * 16
+        + bucketed[..., 1].astype(np.uint32) * 4
+        + bucketed[..., 2].astype(np.uint32)
+    ).ravel()
+    counts = np.bincount(flat_keys, minlength=4 * 4 * 4)
+    total = int(counts.sum())
+    if total == 0:
+        return False
+    top2 = int(np.sort(counts)[-2:].sum())
+    coverage = top2 / total
+    return bool(coverage >= dominance_threshold)
+
+
 def clean_for_tracing(
     img: Image.Image,
     *,

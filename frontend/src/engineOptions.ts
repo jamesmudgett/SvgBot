@@ -4,8 +4,6 @@ export type EngineOption = {
   value: EngineChoice;
   /** Short label for the &lt;select&gt; option */
   selectLabel: string;
-  /** One line shown under the engine picker */
-  hint: string;
   /** Best-for tag shown in docs */
   bestFor: string;
   /** Longer copy for the info section */
@@ -18,23 +16,27 @@ export const ENGINE_OPTIONS: EngineOption[] = [
   {
     value: "auto",
     selectLabel: "Auto (default, runs all engines, picks best score)",
-    hint: "",
     bestFor: "Maximum accuracy when you can wait",
     description:
-      "Generates one candidate from each engine, ranks them with DinoScore (and an LPIPS tiebreak on logos when scores are close), then refines the winner. Default choice: slowest but best when you are unsure which engine fits the image.",
+      "Generates one candidate from each engine, ranks logos by mean(DinoScore, LPIPS) so crisper letterforms win, ranks photos by DinoScore, then refines the winner. For high-contrast 2-color brand marks, also runs a dedicated palette=2 binary trace. Default choice: slowest but best when you are unsure which engine fits the image.",
+  },
+  {
+    value: "vtracer_mono",
+    selectLabel: "VTracer monochrome (best for 2-color logos)",
+    bestFor: "High-contrast 2-color logos",
+    description:
+      "Palette=2 cleaning collapses every glyph to a single foreground color, then VTracer traces in binary mode. Eliminates inter-letter color drift and sub-pixel anti-aliasing fragments. Best for cleo-style brand marks with one foreground tone on one background tone.",
   },
   {
     value: "vtracer_smooth",
-    selectLabel: "VTracer smooth (best for logos)",
-    hint: "Denoises and palette-quantizes before tracing for clean curves on flat fills and text.",
+    selectLabel: "VTracer smooth (best for multi-color logos)",
     bestFor: "Logos, icons, brand marks",
     description:
-      "Bilateral filter and k-means palette snap flatten JPEG and anti-aliasing noise, then VTracer traces with a smooth-curve grid tuned for fewer control points. Recommended for flat-color artwork and text-heavy logos.",
+      "Bilateral filter and k-means palette snap (palette=6) flatten JPEG and anti-aliasing noise, then VTracer traces with a smooth-curve grid tuned for fewer control points. Recommended for flat-color artwork and text-heavy logos with multiple tones.",
   },
   {
     value: "starvector",
     selectLabel: "StarVector (GPU, best for illustrations)",
-    hint: "Neural im2svg model. Needs a CUDA GPU. Strong on complex shapes; text logos may look choppy.",
     bestFor: "Illustrations, complex artwork",
     description:
       "A vision-language model writes SVG path markup directly from the image. Multiple stochastic samples are scored; the best becomes the output. Excels on global likeness for rich artwork but can produce uneven letter edges on text-heavy logos.",
@@ -42,7 +44,6 @@ export const ENGINE_OPTIONS: EngineOption[] = [
   {
     value: "vtracer",
     selectLabel: "VTracer (best for photos and gradients)",
-    hint: "Classical color tracing on the raw image with auto-tuned parameters.",
     bestFor: "Photos, gradients, many colors",
     description:
       "Traces color regions without palette preprocessing, preserving photographic detail and smooth gradients. Auto-tune sweeps a parameter grid and keeps the highest-scoring result.",
@@ -66,7 +67,13 @@ export const AUTO_ENGINES: Pick<EngineOption, "selectLabel" | "bestFor" | "descr
     selectLabel: "VTracer smooth",
     bestFor: "Logos, icons, brand marks",
     description:
-      "Palette-quantized, denoised input traced with the smooth-curve grid (skipped for photos).",
+      "Palette-quantized (6 colors), denoised input traced with the smooth-curve grid (skipped for photos).",
+  },
+  {
+    selectLabel: "VTracer monochrome",
+    bestFor: "2-color brand marks (cleo, etc.)",
+    description:
+      "Palette=2 binary trace, only runs when the image is detected as high-contrast monochrome. Produces a minimal-path SVG with one foreground / one background color.",
   },
 ];
 

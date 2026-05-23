@@ -11,6 +11,7 @@ JobPhase = Literal[
     "starvector",
     "vtracer",
     "vtracer_smooth",
+    "vtracer_mono",
     "refining",
     "sanitizing",
     "done",

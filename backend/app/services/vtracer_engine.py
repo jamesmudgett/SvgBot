@@ -57,6 +57,38 @@ LOGO_GRID = [
 # segments into curves, lower path_precision rounds away sub-pixel jitter.
 # Pair with a palette-quantized input (preprocess.clean_for_tracing) so the
 # tracer doesn't waste detail chasing JPEG/AA noise.
+LOGO_MONO_GRID = [
+    {
+        "colormode": "binary",
+        "mode": "spline",
+        "filter_speckle": 4,
+        "path_precision": 7,
+        "corner_threshold": 75,
+        "length_threshold": 5.0,
+        "splice_threshold": 60,
+    },
+    {
+        "colormode": "binary",
+        "mode": "spline",
+        "filter_speckle": 6,
+        "path_precision": 6,
+        "corner_threshold": 85,
+        "length_threshold": 6.5,
+        "splice_threshold": 70,
+    },
+    {
+        "colormode": "color",
+        "hierarchical": "stacked",
+        "mode": "spline",
+        "color_precision": 2,
+        "filter_speckle": 6,
+        "path_precision": 6,
+        "corner_threshold": 80,
+        "length_threshold": 5.5,
+    },
+]
+
+
 LOGO_SMOOTH_GRID = [
     {
         "colormode": "color",

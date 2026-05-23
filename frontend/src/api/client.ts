@@ -1,5 +1,10 @@
 export type QualityTier = "standard" | "high";
-export type EngineChoice = "auto" | "starvector" | "vtracer" | "vtracer_smooth";
+export type EngineChoice =
+  | "auto"
+  | "starvector"
+  | "vtracer"
+  | "vtracer_smooth"
+  | "vtracer_mono";
 
 /** Keep in sync with `backend/app/models/schemas.py::JobPhase`. */
 export type JobPhase =
@@ -9,6 +14,7 @@ export type JobPhase =
   | "starvector"
   | "vtracer"
   | "vtracer_smooth"
+  | "vtracer_mono"
   | "refining"
   | "sanitizing"
   | "done"

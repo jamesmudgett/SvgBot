@@ -60,6 +60,72 @@ def test_clean_for_tracing_illustration_skips_palette_snap():
     assert unique > 4
 
 
+def test_is_monochrome_logo_detects_two_color_image():
+    """A bg + foreground (with a tiny bit of anti-aliasing) must be classified
+    as monochrome so the orchestrator runs the dedicated 2-color tracing pass."""
+    img = Image.new("RGB", (200, 200), (245, 240, 230))
+    arr = np.array(img)
+    arr[40:160, 40:160] = (50, 30, 25)
+    rng = np.random.default_rng(0)
+    noise = rng.integers(-5, 6, size=arr.shape, dtype=np.int16)
+    arr = np.clip(arr.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    assert preprocess.is_monochrome_logo(arr) is True
+
+
+def test_is_monochrome_logo_rejects_full_color_photo():
+    """A natural gradient (many distinct dominant colors) must not be flagged."""
+    arr = np.zeros((128, 128, 3), dtype=np.uint8)
+    for y in range(128):
+        for x in range(128):
+            arr[y, x] = (x * 2 % 256, y * 2 % 256, (x + y) * 2 % 256)
+    assert preprocess.is_monochrome_logo(arr) is False
+
+
+def test_is_monochrome_logo_accepts_cleo_fixture():
+    """The actual cleo benchmark image must classify as monochrome — that's the
+    whole reason we added this code path."""
+    from pathlib import Path
+
+    fixture = (
+        Path(__file__).resolve().parent.parent / "fixtures" / "cleo.png"
+    )
+    with Image.open(fixture) as img:
+        arr = np.array(img.convert("RGB"))
+    assert preprocess.is_monochrome_logo(arr) is True, (
+        "cleo logo must be detected as monochrome (brown + cream), otherwise "
+        "the 2-color tracing pass never runs and we keep getting color-drifted "
+        "letterforms"
+    )
+
+
+def test_is_monochrome_logo_rejects_three_color_logo():
+    """A logo with three distinct colors (e.g. brand mark with accent) is NOT
+    a candidate for the binary 2-color trace pass."""
+    arr = np.zeros((180, 180, 3), dtype=np.uint8)
+    arr[:, :] = (245, 240, 230)
+    arr[20:90, 20:90] = (50, 30, 25)
+    arr[100:160, 100:160] = (200, 60, 50)
+    assert preprocess.is_monochrome_logo(arr) is False
+
+
+def test_clean_for_tracing_palette_2_produces_exactly_two_colors():
+    """The palette=2 cleaning path must collapse to exactly 2 colors so the
+    vtracer monochrome pass produces a single foreground / single background
+    SVG with no inter-letter color drift."""
+    img = Image.new("RGB", (120, 120), (245, 240, 230))
+    arr = np.array(img)
+    arr[20:100, 20:100] = (50, 30, 25)
+    rng = np.random.default_rng(1)
+    noise = rng.integers(-10, 11, size=arr.shape, dtype=np.int16)
+    arr = np.clip(arr.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    img = Image.fromarray(arr, mode="RGB")
+
+    cleaned = preprocess.clean_for_tracing(img, kind="logo", palette_size=2, bilateral=False)
+    cleaned_arr = np.array(cleaned)
+    unique = len(np.unique(cleaned_arr.reshape(-1, 3), axis=0))
+    assert unique == 2, f"expected exactly 2 colors, got {unique}"
+
+
 def test_clean_rgba_for_tracing_collapses_opaque_pixels():
     rgb = _noisy_logo()
     arr = np.array(rgb.convert("RGBA"))

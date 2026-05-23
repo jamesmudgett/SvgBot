@@ -137,4 +137,6 @@ def starvector_config_debug() -> dict:
 
 
 QualityTier = Literal["standard", "high"]
-EngineChoice = Literal["auto", "starvector", "vtracer", "vtracer_smooth"]
+EngineChoice = Literal[
+    "auto", "starvector", "vtracer", "vtracer_smooth", "vtracer_mono"
+]

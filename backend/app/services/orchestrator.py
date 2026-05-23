@@ -16,9 +16,19 @@ from app.services.svg_raster import count_paths
 
 logger = logging.getLogger(__name__)
 
-# When logo candidates tie on DinoScore within this band, prefer the one with
-# better LPIPS (often the smooth-curve VTracer pass with fewer choppy edges).
-_LOGO_DINO_TIEBREAK_EPS = 0.02
+
+# Refinement budget per quality tier. The Quality dropdown's 'Faster' / 'High'
+# options need observable behavior; just scaling starvector_k from 3->5 is too
+# subtle. Capping (or expanding) the refinement loop is the most visible knob.
+_REFINE_MAX_PASSES_BY_QUALITY: dict[str, int] = {
+    "standard": 8,
+}
+
+
+def _refine_passes_for_quality(quality: str, settings_cap: int) -> int:
+    if quality == "high":
+        return settings_cap
+    return min(_REFINE_MAX_PASSES_BY_QUALITY.get(quality, 8), settings_cap)
 
 
 # Human-readable label for each backend phase. Frontend can render its own
@@ -30,6 +40,7 @@ _PHASE_LABELS: dict[str, str] = {
     "starvector": "Generating with StarVector",
     "vtracer": "Tracing with VTracer",
     "vtracer_smooth": "Smoothing curves",
+    "vtracer_mono": "Tracing 2-color logo",
     "refining": "Refining details",
     "sanitizing": "Cleaning up SVG",
     "done": "Done",
@@ -69,27 +80,34 @@ class VectorizeOutput:
 
 
 def _pick_best_candidate(candidates: list[_Candidate], kind: str) -> _Candidate:
-    """Return the ensemble winner, with a logo-specific LPIPS tiebreak."""
-    ranked = sorted(candidates, key=lambda c: c.dino, reverse=True)
-    best = ranked[0]
-    if kind != "logo" or len(ranked) < 2:
-        return best
+    """Return the ensemble winner using a kind-aware ranking metric.
 
-    close = [c for c in ranked if best.dino - c.dino <= _LOGO_DINO_TIEBREAK_EPS]
-    if len(close) < 2:
-        return best
+    Logos: rank by ``(dino + lpips) / 2`` so candidates with crisper local
+    detail (letterforms, edges) win even when their DinoScore is lower than a
+    competitor's. Empirically DinoScore alone over-weights global color match
+    and lets letter distortion through, which is the cleo regression.
 
-    winner = max(close, key=lambda c: (c.dino + c.lpips) / 2.0)
-    if winner.engine != best.engine:
+    Non-logos: rank by DinoScore alone. LPIPS over-rewards pixel-perfect edge
+    fidelity, which is the wrong signal for photographic / illustrative content.
+    """
+    if not candidates:
+        raise ValueError("_pick_best_candidate requires at least one candidate")
+
+    def score(c: _Candidate) -> float:
+        if kind == "logo":
+            return (c.dino + c.lpips) / 2.0
+        return c.dino
+
+    ranked = sorted(candidates, key=score, reverse=True)
+    winner = ranked[0]
+    dino_ranked = sorted(candidates, key=lambda c: c.dino, reverse=True)
+    if kind == "logo" and len(candidates) >= 2 and winner is not dino_ranked[0]:
+        top_dino = dino_ranked[0]
         logger.info(
-            "logo tiebreak: chose %s (dino=%.4f lpips=%.4f) over %s "
-            "(dino=%.4f lpips=%.4f)",
-            winner.engine,
-            winner.dino,
-            winner.lpips,
-            best.engine,
-            best.dino,
-            best.lpips,
+            "logo ranking: chose %s (dino=%.4f lpips=%.4f mean=%.4f) over %s "
+            "(dino=%.4f lpips=%.4f mean=%.4f)",
+            winner.engine, winner.dino, winner.lpips, score(winner),
+            top_dino.engine, top_dino.dino, top_dino.lpips, score(top_dino),
         )
     return winner
 
@@ -103,11 +121,10 @@ def _run_starvector(
         if required:
             raise
         return None
-    _, lpips = score_svg(img, sv.svg, width, height)
     return _Candidate(
         svg=sv.svg,
         dino=sv.dino_score,
-        lpips=lpips,
+        lpips=sv.lpips,
         engine="starvector",
         tried=sv.candidates_tried,
     )
@@ -124,6 +141,47 @@ def _run_vtracer(
         return None
     _, lpips = score_svg(img, svg, width, height)
     return _Candidate(svg=svg, dino=dino, lpips=lpips, engine="vtracer", tried=len(grid))
+
+
+def _run_vtracer_mono(
+    img: Image.Image, width: int, height: int, kind: str
+) -> _Candidate | None:
+    """Binary 2-color tracing pass for monochrome logos (e.g. cleo).
+
+    Two-color brand marks are the worst case for the standard smooth pipeline:
+    palette=6 cleaning preserves anti-aliasing color drift across letterforms,
+    so vtracer traces every glyph in a slightly different shade and adds tiny
+    sub-pixel sliver paths along AA edges. This pass instead snaps to *exactly*
+    2 colors so the entire foreground collapses to a single fill, then traces
+    in binary mode for a clean few-path output.
+
+    Returns ``None`` for non-logo images (or if the pipeline fails) so the
+    orchestrator can ignore it without raising.
+    """
+    if kind != "logo":
+        return None
+    try:
+        cleaned = preprocess.clean_for_tracing(
+            img,
+            kind="logo",
+            palette_size=2,
+            bilateral=True,
+        )
+        svg, _ = vtracer_engine.auto_tune(
+            cleaned, width, height, grid=vtracer_engine.LOGO_MONO_GRID
+        )
+    except Exception as exc:
+        logger.warning("VTracer monochrome pass failed: %s", exc)
+        return None
+
+    dino, lpips = score_svg(img, svg, width, height)
+    return _Candidate(
+        svg=svg,
+        dino=dino,
+        lpips=lpips,
+        engine="vtracer_mono",
+        tried=len(vtracer_engine.LOGO_MONO_GRID),
+    )
 
 
 def _run_vtracer_smooth(
@@ -220,6 +278,17 @@ def vectorize_bytes(
         elif engine == "vtracer_smooth":
             raise RuntimeError("Smooth-curve VTracer pipeline produced no output")
 
+    run_mono = engine == "vtracer_mono" or (
+        engine == "auto" and kind == "logo" and preprocess.is_monochrome_logo(arr)
+    )
+    if run_mono:
+        report("vtracer_mono")
+        mn = _run_vtracer_mono(img, width, height, kind)
+        if mn:
+            candidates.append(mn)
+        elif engine == "vtracer_mono":
+            raise RuntimeError("Monochrome VTracer pipeline produced no output")
+
     if not candidates:
         raise RuntimeError("Vectorization produced no output")
 
@@ -234,8 +303,11 @@ def vectorize_bytes(
     refine_coverage = 0.0
 
     report("refining")
+    refine_cap = _refine_passes_for_quality(quality, settings.refine_max_passes)
     try:
-        result = refine.iterative_refine(img, base.svg, width, height)
+        result = refine.iterative_refine(
+            img, base.svg, width, height, max_passes=refine_cap
+        )
     except Exception as exc:
         logger.warning("refinement failed, keeping base SVG: %s", exc)
         result = None

@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+import io
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from app.config import get_settings
 from app.services import orchestrator
 
 
-def test_pick_best_candidate_prefers_lpips_on_close_logo_scores():
+def test_pick_best_candidate_prefers_higher_combined_score_for_logos():
+    """For logos, rank by mean(dino, lpips), not dino alone.
+
+    DinoScore captures global color/shape similarity; LPIPS captures local
+    perceptual detail (letterforms, edges). Weighting them equally avoids the
+    failure mode where a candidate wins on background color match while losing
+    on letter crispness.
+    """
     candidates = [
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='a'/>",
             dino=0.936,
             lpips=0.91,
             engine="starvector",
             tried=3,
         ),
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='b'/>",
             dino=0.930,
             lpips=0.95,
             engine="vtracer_smooth",
@@ -24,17 +38,21 @@ def test_pick_best_candidate_prefers_lpips_on_close_logo_scores():
     assert winner.engine == "vtracer_smooth"
 
 
-def test_pick_best_candidate_keeps_top_dino_when_gap_is_large():
+def test_pick_best_candidate_picks_high_lpips_even_when_dino_gap_is_large():
+    """Regression test for cleo: when one candidate dominates on LPIPS the
+    visual result is better, so it should win even when DinoScore gap is wider
+    than the old 0.02 tiebreak band.
+    """
     candidates = [
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='sv'/>",
             dino=0.960,
             lpips=0.90,
             engine="starvector",
             tried=3,
         ),
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='vt'/>",
             dino=0.920,
             lpips=0.98,
             engine="vtracer_smooth",
@@ -42,20 +60,52 @@ def test_pick_best_candidate_keeps_top_dino_when_gap_is_large():
         ),
     ]
     winner = orchestrator._pick_best_candidate(candidates, kind="logo")
-    assert winner.engine == "starvector"
+    assert winner.engine == "vtracer_smooth", (
+        "for logos, combined (dino+lpips)/2 should rank vtracer_smooth higher: "
+        "0.920+0.98=1.900 vs 0.960+0.90=1.860"
+    )
 
 
-def test_pick_best_candidate_ignores_tiebreak_for_photos():
+def test_pick_best_candidate_with_cleo_screenshot_numbers_picks_vtracer():
+    """Direct replay of the cleo screenshot numbers + this morning's debug run.
+
+    StarVector wins dino but loses lpips; vtracer/vtracer_smooth have very
+    similar combined scores but both should beat StarVector.
+    """
     candidates = [
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='sv'/>", dino=0.951, lpips=0.962,
+            engine="starvector", tried=3,
+        ),
+        orchestrator._Candidate(
+            svg="<svg id='vt'/>", dino=0.929, lpips=0.987,
+            engine="vtracer", tried=4,
+        ),
+        orchestrator._Candidate(
+            svg="<svg id='sm'/>", dino=0.925, lpips=0.990,
+            engine="vtracer_smooth", tried=4,
+        ),
+    ]
+    winner = orchestrator._pick_best_candidate(candidates, kind="logo")
+    assert winner.engine != "starvector", (
+        "the cleo regression: starvector's 0.951 dino must not beat vtracer's "
+        "(0.929 + 0.987) / 2 = 0.958"
+    )
+
+
+def test_pick_best_candidate_uses_pure_dino_for_photos():
+    """Photos use raw DinoScore; LPIPS over-weights pixel-perfect edges which
+    isn't the right signal for photographic content."""
+    candidates = [
+        orchestrator._Candidate(
+            svg="<svg id='sv'/>",
             dino=0.936,
             lpips=0.91,
             engine="starvector",
             tried=3,
         ),
         orchestrator._Candidate(
-            svg="<svg/>",
+            svg="<svg id='vt'/>",
             dino=0.930,
             lpips=0.95,
             engine="vtracer_smooth",
@@ -64,3 +114,164 @@ def test_pick_best_candidate_ignores_tiebreak_for_photos():
     ]
     winner = orchestrator._pick_best_candidate(candidates, kind="photo")
     assert winner.engine == "starvector"
+
+
+def test_pick_best_candidate_uses_pure_dino_for_illustrations():
+    """Illustrations sit between photos and logos; we keep dino-only for them too.
+    Only logos need the combined-score weighting because letterform precision is
+    the dominant quality signal there."""
+    candidates = [
+        orchestrator._Candidate(
+            svg="<svg id='sv'/>",
+            dino=0.94,
+            lpips=0.85,
+            engine="starvector",
+            tried=3,
+        ),
+        orchestrator._Candidate(
+            svg="<svg id='vt'/>",
+            dino=0.92,
+            lpips=0.95,
+            engine="vtracer_smooth",
+            tried=4,
+        ),
+    ]
+    winner = orchestrator._pick_best_candidate(candidates, kind="illustration")
+    assert winner.engine == "starvector"
+
+
+def _make_logo_png() -> bytes:
+    """Synthetic 2-color logo: dark on light background, large enough for ResNet."""
+    img = Image.new("RGB", (256, 256), (250, 245, 235))
+    arr = np.array(img)
+    arr[40:200, 40:200] = (40, 30, 25)
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_vectorize_bytes_standard_quality_runs_fewer_refine_passes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The Quality dropdown's 'Faster' option must actually run a cheaper pipeline.
+
+    We assert by intercepting ``refine.iterative_refine`` and checking the
+    ``max_passes`` keyword arg the orchestrator forwards. 'Faster' should pass a
+    smaller cap than 'High'.
+    """
+    from app.services import refine as refine_module
+
+    captured: dict[str, int] = {}
+
+    def fake_iterative_refine(img, base_svg, width, height, *, max_passes=None, **kw):
+        _ = img, width, height, kw
+        captured["max_passes"] = max_passes if max_passes is not None else -1
+        return refine_module.RefineResult(svg=base_svg, score=0.9, passes=0, coverage=0.0)
+
+    monkeypatch.setattr(refine_module, "iterative_refine", fake_iterative_refine)
+    monkeypatch.setattr(orchestrator.refine, "iterative_refine", fake_iterative_refine)
+
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=True,
+    )
+    assert "max_passes" in captured, "orchestrator must pass max_passes explicitly"
+    standard_cap = captured["max_passes"]
+
+    captured.clear()
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="high",
+        engine="vtracer",
+        fontless=True,
+    )
+    high_cap = captured["max_passes"]
+    _ = out
+
+    assert standard_cap > 0 and high_cap > 0
+    assert standard_cap < high_cap, (
+        f"quality='standard' ({standard_cap} passes) should be cheaper than "
+        f"quality='high' ({high_cap} passes); otherwise the dropdown does nothing"
+    )
+
+
+def test_vectorize_bytes_high_quality_respects_settings_cap(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """High quality should pass approximately ``settings.refine_max_passes`` to refine
+    (within +/- 1 to allow rounding), so global tuning still applies."""
+    from app.services import refine as refine_module
+
+    settings = get_settings()
+    captured: dict[str, int] = {}
+
+    def fake_iterative_refine(img, base_svg, width, height, *, max_passes=None, **kw):
+        _ = img, width, height, kw
+        captured["max_passes"] = max_passes if max_passes is not None else -1
+        return refine_module.RefineResult(svg=base_svg, score=0.9, passes=0, coverage=0.0)
+
+    monkeypatch.setattr(orchestrator.refine, "iterative_refine", fake_iterative_refine)
+
+    orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="high",
+        engine="vtracer",
+        fontless=True,
+    )
+    assert abs(captured["max_passes"] - settings.refine_max_passes) <= 1
+
+
+def test_vectorize_bytes_auto_engine_emits_monochrome_candidate_for_cleo_like_logo(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """For high-contrast 2-color logos (like cleo), auto mode must also run the
+    palette=2 monochrome pass. Without it, vtracer faithfully traces JPEG/AA color
+    drift across letter glyphs, which is the visible 'not perfect' regression.
+
+    StarVector is stubbed to unavailable because the CI host has no CUDA; only
+    the orchestrator-level routing logic is under test here.
+    """
+    from app.services import starvector_engine
+
+    def fake_starvector(*args, **kwargs):
+        _ = args, kwargs
+        raise starvector_engine.StarVectorUnavailable("test env has no GPU")
+
+    monkeypatch.setattr(starvector_engine, "vectorize", fake_starvector)
+
+    seen_engines: list[str] = []
+
+    real_run_vtracer = orchestrator._run_vtracer
+    real_run_smooth = orchestrator._run_vtracer_smooth
+
+    def tracked_vtracer(img, w, h, kind):
+        seen_engines.append("vtracer")
+        return real_run_vtracer(img, w, h, kind)
+
+    def tracked_smooth(img, w, h, kind):
+        seen_engines.append("vtracer_smooth")
+        return real_run_smooth(img, w, h, kind)
+
+    monkeypatch.setattr(orchestrator, "_run_vtracer", tracked_vtracer)
+    monkeypatch.setattr(orchestrator, "_run_vtracer_smooth", tracked_smooth)
+
+    if hasattr(orchestrator, "_run_vtracer_mono"):
+        real_mono = orchestrator._run_vtracer_mono
+
+        def tracked_mono(img, w, h, kind):
+            seen_engines.append("vtracer_mono")
+            return real_mono(img, w, h, kind)
+
+        monkeypatch.setattr(orchestrator, "_run_vtracer_mono", tracked_mono)
+
+    orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="auto",
+        fontless=True,
+    )
+    assert "vtracer_mono" in seen_engines, (
+        "auto+monochrome-logo must trigger the dedicated 2-color tracing path"
+    )

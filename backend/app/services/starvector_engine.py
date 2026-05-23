@@ -23,10 +23,74 @@ class StarVectorUnavailable(Exception):
 class StarVectorResult:
     svg: str
     dino_score: float
+    lpips: float
     candidates_tried: int
 
 
+@dataclass
+class _Candidate:
+    """One stochastic StarVector generation with its perceptual scores."""
+
+    svg: str
+    dino: float
+    lpips: float
+
+
+# DinoScore captures global color/shape similarity but is insensitive to fine
+# letterform precision (high-frequency detail). LPIPS does the opposite. If two
+# candidates are within this DinoScore band, we pick the higher-LPIPS one to
+# get the crisper letters even when its dino is marginally lower. This is the
+# same heuristic the ensemble orchestrator uses for logos, applied inside the
+# StarVector best-of-k loop so a "subtly off" candidate doesn't get picked just
+# because its background colors happen to match better.
+_LPIPS_TIEBREAK_DINO_EPS = 0.02
+
+
+def _pick_best_candidate(candidates: list[_Candidate]) -> _Candidate:
+    if not candidates:
+        raise ValueError("_pick_best_candidate requires at least one candidate")
+    ranked = sorted(candidates, key=lambda c: c.dino, reverse=True)
+    best = ranked[0]
+    if len(ranked) < 2:
+        return best
+    close = [c for c in ranked if best.dino - c.dino <= _LPIPS_TIEBREAK_DINO_EPS]
+    if len(close) < 2:
+        return best
+    return max(close, key=lambda c: (c.dino + c.lpips) / 2.0)
+
+
 _model = None
+
+_WINERROR_6714_MSG = (
+    "StarVector import failed with Windows error 6714 (stale uvicorn reload worker). "
+    "Stop all backend\\.venv Python processes and restart with .\\run.ps1, or run uvicorn with "
+    "--reload-dir app --reload-exclude '*.pyc' --reload-exclude '.venv/*'. "
+    "See README troubleshooting."
+)
+
+
+def _is_winerror_6714(exc: BaseException) -> bool:
+    code = getattr(exc, "winerror", None) or getattr(exc, "errno", None)
+    if code == 6714:
+        return True
+    for linked in (exc.__cause__, exc.__context__):
+        if linked is None:
+            continue
+        linked_code = getattr(linked, "winerror", None) or getattr(linked, "errno", None)
+        if linked_code == 6714:
+            return True
+    return "6714" in str(exc)
+
+
+def _wrap_starvector_import_error(exc: ImportError) -> None:
+    if _is_winerror_6714(exc):
+        raise StarVectorUnavailable(_WINERROR_6714_MSG) from exc
+    raise StarVectorUnavailable(
+        "starvector package not installed. Run: "
+        "pip install -r backend/requirements-starvector-deps.txt && "
+        "pip install --no-deps -r backend/requirements-starvector-package.txt "
+        "(see README)"
+    ) from exc
 
 
 def _ensure_hf_token() -> None:
@@ -62,12 +126,11 @@ def _load_model():
         import transformers
         from starvector.model.builder import load_pretrained_model
     except ImportError as e:
-        raise StarVectorUnavailable(
-            "starvector package not installed. Run: "
-            "pip install -r backend/requirements-starvector-deps.txt && "
-            "pip install --no-deps -r backend/requirements-starvector-package.txt "
-            "(see README)"
-        ) from e
+        _wrap_starvector_import_error(e)
+    except OSError as e:
+        if _is_winerror_6714(e):
+            raise StarVectorUnavailable(_WINERROR_6714_MSG) from e
+        raise
 
     tf_major = int(transformers.__version__.split(".", maxsplit=1)[0])
     if tf_major >= 5:
@@ -99,6 +162,8 @@ def _load_model():
             **load_kwargs,
         )
     except Exception as exc:
+        if _is_winerror_6714(exc):
+            raise StarVectorUnavailable(_WINERROR_6714_MSG) from exc
         raise StarVectorUnavailable(f"Failed to load StarVector model: {exc}") from exc
 
     model.eval()
@@ -184,26 +249,48 @@ def _generate_one(model, img: Image.Image, max_length: int) -> str:
 
 
 def vectorize(img: Image.Image, width: int, height: int, k: int = 3) -> StarVectorResult:
+    """Run StarVector k times and return the best candidate.
+
+    "Best" uses DinoScore as the primary signal with an LPIPS tiebreak inside a
+    small DinoScore band. See ``_pick_best_candidate`` for the rationale.
+    """
     settings = get_settings()
     model = _load_model()
     max_length = settings.starvector_max_length
 
-    best_svg = ""
-    best_dino = -1.0
+    candidates: list[_Candidate] = []
     tried = 0
 
     for _ in range(max(1, k)):
         try:
             svg = _generate_one(model, img, max_length=max_length)
             tried += 1
-            dino, _ = score_svg(img, svg, width, height)
-            if dino > best_dino:
-                best_dino = dino
-                best_svg = svg
+            dino, lpips = score_svg(img, svg, width, height)
+            candidates.append(_Candidate(svg=svg, dino=dino, lpips=lpips))
+            logger.info(
+                "StarVector candidate %d: dino=%.4f lpips=%.4f", tried, dino, lpips
+            )
         except Exception as e:
             logger.warning("StarVector candidate failed: %s", e)
 
-    if not best_svg:
+    if not candidates:
         raise StarVectorUnavailable("All StarVector candidates failed")
 
-    return StarVectorResult(svg=best_svg, dino_score=best_dino, candidates_tried=tried)
+    winner = _pick_best_candidate(candidates)
+    if len(candidates) > 1:
+        top_dino = max(candidates, key=lambda c: c.dino)
+        if top_dino is not winner:
+            logger.info(
+                "StarVector tiebreak: chose lpips=%.4f (dino=%.4f) over "
+                "dino=%.4f (lpips=%.4f)",
+                winner.lpips,
+                winner.dino,
+                top_dino.dino,
+                top_dino.lpips,
+            )
+    return StarVectorResult(
+        svg=winner.svg,
+        dino_score=winner.dino,
+        lpips=winner.lpips,
+        candidates_tried=tried,
+    )

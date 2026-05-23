@@ -1,0 +1,44 @@
+# DigitalOcean App Platform spec: GPU-Droplet variant.
+#
+# Use this when you want StarVector running on a GPU you already own (a
+# DigitalOcean GPU Droplet, your own server, etc.). App Platform serves
+# only the frontend; the backend runs separately and is reached via its
+# public URL.
+#
+# Prereqs (see Deploy section of README.md for the full Droplet runbook):
+#   1. Provision a GPU Droplet with NVIDIA drivers + NVIDIA Container Toolkit.
+#   2. Run `docker compose up -d` from the repo root on that Droplet.
+#   3. Put a TLS-terminating reverse proxy (Caddy / nginx / Cloudflare
+#      Tunnel) in front of port 8000 and give it a hostname,
+#      e.g. https://api.your-domain.com.
+#   4. Set VITE_API_BASE below to that hostname.
+#   5. On the Droplet, set backend/.env -> CORS_ORIGINS=https://<this app's URL>
+#      so the browser-issued cross-origin requests succeed.
+#
+# Deploy:   doctl apps create --spec .do/app.gpu-droplet.yaml
+# Update:   doctl apps update <app-id> --spec .do/app.gpu-droplet.yaml
+
+name: svgbot-frontend
+region: nyc
+
+static_sites:
+  - name: web
+    github:
+      repo: jamesmudgett/SvgBot
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /frontend
+
+    environment_slug: node-js
+    build_command: npm ci && npm run build
+    output_dir: dist
+
+    catchall_document: index.html
+
+    envs:
+      # Public URL of the GPU Droplet's backend. MUST be set at BUILD_TIME
+      # because Vite inlines import.meta.env.VITE_API_BASE into the JS bundle.
+      - key: VITE_API_BASE
+        scope: BUILD_TIME
+        value: https://api.your-domain.com

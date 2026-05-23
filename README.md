@@ -298,6 +298,132 @@ Use `engine=vtracer` in tests when GPU / StarVector is unavailable.
 
 ---
 
+## Deploy
+
+Two supported paths to DigitalOcean. Pick based on whether you want StarVector (needs a GPU) or are happy with VTracer plus the refinement loop (CPU-only, much cheaper).
+
+| Path | StarVector | Where it runs | Approx. cost |
+|------|------------|---------------|--------------|
+| **A. App Platform (CPU-only, default)** | Disabled | One App with `static_sites: web` + `services: api` | ~$12/mo (one `basic-xs` service; static site is free) |
+| **B. GPU Droplet + App Platform frontend** | Enabled | Backend on a GPU Droplet, frontend as a static site | $300+/mo (e.g. RTX 4000 Ada GPU Droplet) |
+
+Both paths use specs committed under `.do/`. Install [`doctl`](https://docs.digitalocean.com/reference/doctl/how-to/install/) and run `doctl auth init` first. Edit `github.repo` in the spec to point at your fork if you're not deploying upstream.
+
+### A. CPU-only on DigitalOcean App Platform (default)
+
+The spec at `.do/app.yaml` defines a single App with two components:
+
+- `static_sites: web` builds `frontend/` with the Node buildpack and serves the SPA from the CDN (free).
+- `services: api` builds `backend/Dockerfile` (CPU-only image; no CUDA, no StarVector) and runs FastAPI on port 8000.
+- Ingress routes `/api`, `/health`, and `/.well-known` to the API service. Everything else falls through to the static site, so the frontend hits the API with relative `/api/...` URLs and no CORS configuration is needed.
+
+Without StarVector the orchestrator runs VTracer + VTracer-smooth + VTracer-mono and the residual refinement loop. Quality stays high on logos, icons, and most illustrations; you only lose the neural im2svg candidate.
+
+Deploy:
+
+```bash
+# Optional: validate the spec before pushing.
+doctl apps spec validate .do/app.yaml
+
+# First deploy.
+doctl apps create --spec .do/app.yaml
+
+# Subsequent deploys happen automatically on push to main (deploy_on_push: true).
+# To redeploy manually:
+doctl apps update <app-id> --spec .do/app.yaml
+```
+
+The image never ships your local secrets: `backend/.dockerignore` excludes `.env`, `.venv/`, `data/`, and the StarVector requirement files. Set runtime values in the App Platform dashboard (or via `doctl apps update`):
+
+| Env var | Purpose | Recommended setting |
+|---------|---------|--------------------|
+| `HF_TOKEN` | Faster Hugging Face downloads, higher rate limits | Scope `RUN_TIME`, type `SECRET` |
+| `XAI_API_KEY` | Enables the Grok-powered editor chat panel | Scope `RUN_TIME`, type `SECRET` |
+| `PAYMENTS_ENABLED=true` plus `MPP_*` / `X402_*` | Agent API payments ($0.50/conversion) | Scope `RUN_TIME` |
+
+The `api` service runs on `basic-xs` (1 vCPU / 1 GB RAM). DinoScore (ResNet-50, ~100 MB) and LPIPS (AlexNet, ~50 MB) load lazily on the first request, so the first conversion takes 30-60s while models warm up. Bump `instance_size_slug` in `.do/app.yaml` if you need more concurrency or hit OOMs.
+
+### B. GPU Droplet for the backend + App Platform for the frontend
+
+Use this when you want StarVector. The backend runs on a GPU you control (DigitalOcean GPU Droplet, your own box, anywhere with NVIDIA drivers); the static frontend stays on App Platform and calls the backend over HTTPS.
+
+#### 1. Provision the GPU Droplet
+
+Any image with an NVIDIA GPU works. The example uses Ubuntu 22.04.
+
+```bash
+# After SSHing into the Droplet:
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-plugin
+
+# Install NVIDIA Container Toolkit so `docker --gpus all` works.
+distribution=$(. /etc/os-release; echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+  sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+# Sanity check.
+sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+#### 2. Run the backend on the Droplet
+
+```bash
+git clone https://github.com/jamesmudgett/SvgBot.git
+cd SvgBot
+cp backend/.env.example backend/.env
+# Edit backend/.env:
+#   STARVECTOR_ENABLED=true
+#   HF_TOKEN=hf_...
+#   CORS_ORIGINS=https://<your-app-platform-frontend-url>
+sudo docker compose up -d --build api
+```
+
+Only the `api` service is started: App Platform serves the frontend, so the `web` container in `docker-compose.yml` isn't needed on the Droplet.
+
+#### 3. Put HTTPS in front of port 8000
+
+Browsers refuse to load mixed-content HTTP backends from an HTTPS App Platform origin. Caddy with automatic Let's Encrypt is the lowest-friction option:
+
+```bash
+sudo apt-get install -y caddy
+sudo tee /etc/caddy/Caddyfile > /dev/null <<'CADDY'
+api.your-domain.com {
+  reverse_proxy localhost:8000
+}
+CADDY
+sudo systemctl restart caddy
+```
+
+Point an A record for `api.your-domain.com` at the Droplet's public IP and wait for the cert to issue.
+
+#### 4. Deploy the App Platform frontend
+
+```bash
+# Edit .do/app.gpu-droplet.yaml:
+#   set VITE_API_BASE to https://api.your-domain.com
+doctl apps create --spec .do/app.gpu-droplet.yaml
+```
+
+`VITE_API_BASE` is scoped `BUILD_TIME` because Vite inlines `import.meta.env.*` at build. Changing it later requires a fresh deploy (`doctl apps update <app-id> --spec ...`).
+
+### Local Docker Compose (no DigitalOcean)
+
+For local end-to-end testing of the GPU stack:
+
+```bash
+docker compose up --build
+# Frontend: http://localhost:5173, API: http://localhost:8000
+```
+
+`docker-compose.yml` uses the CUDA backend image. To run the CPU stack locally instead, edit the `api` service in `docker-compose.yml` to `dockerfile: Dockerfile` (the CPU image at `backend/Dockerfile`) and remove the `deploy.resources` GPU reservation.
+
+---
+
 ## Agent API (MPP / x402)
 
 **$0.50 per conversion** when payments are enabled. Full instructions: [docs/AGENT_API.md](docs/AGENT_API.md).

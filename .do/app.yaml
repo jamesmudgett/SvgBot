@@ -1,0 +1,124 @@
+# DigitalOcean App Platform spec: default CPU-only deploy.
+#
+# Layout:
+#   - static_sites: web   (Vite build, served by App Platform's CDN)
+#   - services:     api   (FastAPI in backend/Dockerfile, CPU-only)
+#   - ingress routes /api, /health, /.well-known -> api
+#                    /                            -> web
+#
+# Because both components share an origin, the frontend hits the API with
+# relative paths (/api/...) and VITE_API_BASE stays unset. No CORS config
+# is needed.
+#
+# StarVector is disabled (App Platform has no GPUs). The orchestrator runs
+# VTracer + VTracer-smooth + VTracer-mono + the refinement loop, all CPU.
+# If you want StarVector, use the GPU Droplet spec at .do/app.gpu-droplet.yaml
+# instead and follow docs/DEPLOY.md (or the Deploy section of README.md).
+#
+# First deploy:    doctl apps create --spec .do/app.yaml
+# Subsequent:      doctl apps update <app-id> --spec .do/app.yaml
+# Validate spec:   doctl apps spec validate .do/app.yaml
+
+name: svgbot
+region: nyc
+
+# Single ingress that fans out by path prefix. /api, /health, /.well-known
+# go to the FastAPI service; everything else falls through to the static
+# site (React Router handles client-side routing from there).
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /api
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /health
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /.well-known
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /
+      component:
+        name: web
+
+services:
+  - name: api
+    # Replace github.repo with your fork if you're not deploying upstream.
+    github:
+      repo: jamesmudgett/SvgBot
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /backend
+    # dockerfile_path is repo-root relative even when source_dir is set.
+    dockerfile_path: backend/Dockerfile
+
+    http_port: 8000
+    instance_count: 1
+    # basic-xs = 1 vCPU / 1 GB RAM. DinoScore loads a ResNet-50 (~100 MB)
+    # plus LPIPS AlexNet (~50 MB) into memory, so anything smaller will OOM
+    # on the first conversion. Bump to basic-s / basic-m for higher RPS.
+    instance_size_slug: basic-xs
+
+    health_check:
+      http_path: /health
+      # First request triggers lazy torch + DinoScore model load; give it room.
+      initial_delay_seconds: 90
+      period_seconds: 15
+      timeout_seconds: 10
+      failure_threshold: 5
+
+    envs:
+      - key: STARVECTOR_ENABLED
+        scope: RUN_TIME
+        value: "false"
+      - key: PAYMENTS_ENABLED
+        scope: RUN_TIME
+        value: "false"
+      # Same-origin via ingress, so CORS is effectively unused, but the
+      # FastAPI middleware still parses the list. Wildcard is safe here
+      # because credentials are never sent cross-origin in this layout.
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: "*"
+      # Optional: bring your own HF token to avoid rate limits on model
+      # downloads. Add via the App Platform UI as SECRET; do NOT commit.
+      # - key: HF_TOKEN
+      #   scope: RUN_TIME
+      #   type: SECRET
+      #   value: "EV[..."
+      # Optional: enable the Grok-powered editor chat. Leave commented to
+      # keep the editor's chat panel disabled.
+      # - key: XAI_API_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      #   value: "EV[..."
+
+static_sites:
+  - name: web
+    github:
+      repo: jamesmudgett/SvgBot
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /frontend
+
+    # Static sites are buildpack-only on App Platform (no dockerfile_path).
+    # This is what fixes the "environment_slug and dockerfile_path are
+    # mutually exclusive" error.
+    environment_slug: node-js
+    build_command: npm ci && npm run build
+    output_dir: dist
+
+    # React Router needs SPA fallback so deep links don't 404.
+    catchall_document: index.html
+    # VITE_API_BASE is intentionally NOT set: same-origin ingress means
+    # /api/... resolves locally. If you split the frontend and backend
+    # across two apps later, add it here with scope: BUILD_TIME.

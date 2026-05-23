@@ -1,0 +1,34 @@
+# Never bake local secrets, caches, or virtualenvs into the image.
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local job + debug artifacts (regenerated at runtime).
+data/
+debug_out/
+*.log
+
+# Python build artifacts.
+*.egg-info/
+build/
+dist/
+
+# Editor / OS junk.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Don't ship the GPU-only requirement files; keeps the CPU image lean and
+# makes it obvious that this build cannot load StarVector.
+requirements-gpu.txt
+requirements-starvector*.txt

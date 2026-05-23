@@ -402,3 +402,169 @@ def test_vectorize_output_carries_candidate_scores_and_decision():
         "exactly one candidate must be marked selected"
     )
     assert hasattr(out, "decision") and isinstance(out.decision, str) and out.decision
+
+
+def _stub_engines_for_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub StarVector to unavailable so orchestrator tests run without a GPU."""
+    from app.services import starvector_engine
+
+    monkeypatch.setattr(
+        starvector_engine,
+        "vectorize",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            starvector_engine.StarVectorUnavailable("no gpu in test")
+        ),
+    )
+
+
+def test_orchestrator_runs_hybrid_smoothing_for_logos(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The smoothing phase must call smooth_paths.smooth_svg with the refined
+    SVG when the effective kind is 'logo', and record the returned method on
+    VectorizeOutput so the UI can render it."""
+    _stub_engines_for_orchestrator(monkeypatch)
+
+    captured: dict[str, object] = {}
+
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
+        _ = width, height, score_fn, settings
+        captured["called"] = True
+        captured["kind"] = kind
+        captured["in_svg"] = svg
+        return ("<svg id='smoothed'/>", "supersample", 0.0012)
+
+    monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
+
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=False,
+    )
+
+    assert captured.get("called") is True, "smooth_svg must run for logo inputs"
+    assert captured["kind"] == "logo"
+    assert out.smoothing_applied is True
+    assert out.smoothing_method == "supersample"
+    assert abs(out.smoothing_delta - 0.0012) < 1e-6
+
+
+def test_orchestrator_skips_smoothing_for_photos(monkeypatch: pytest.MonkeyPatch):
+    """Photos must not run any smoothing - we want photographic detail preserved.
+    The smoothing function must not be invoked for kind='photo'."""
+    _stub_engines_for_orchestrator(monkeypatch)
+
+    monkeypatch.setattr(orchestrator, "classify_image", lambda stats: "photo")
+    monkeypatch.setattr(orchestrator.preprocess, "is_monochrome_logo", lambda arr: False)
+
+    calls: list[tuple] = []
+
+    def fake_smooth_svg(*args, **kwargs):
+        calls.append((args, kwargs))
+        return (args[0], "supersample", 0.0)
+
+    monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
+
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=False,
+    )
+
+    assert not calls, "smooth_svg must not run when kind='photo'"
+    assert out.smoothing_applied is False
+    assert out.smoothing_method == "none"
+
+
+def test_orchestrator_records_bezier_refit_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """When the hybrid pass returns ('bezier_refit', ...) the orchestrator must
+    record that method (not 'supersample') so the metrics panel reflects the
+    actual smoothing strategy that produced the final SVG."""
+    _stub_engines_for_orchestrator(monkeypatch)
+
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
+        _ = width, height, kind, score_fn, settings
+        return ("<svg id='refit'/>", "bezier_refit", -0.0008)
+
+    monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
+
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=False,
+    )
+
+    assert out.smoothing_applied is True
+    assert out.smoothing_method == "bezier_refit"
+    assert out.smoothing_delta < 0  # accepted-with-tiny-regression is allowed
+
+
+def test_orchestrator_records_no_op_when_both_methods_fail(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If smooth_svg returns method='none' the orchestrator must keep the
+    pre-smoothing SVG and report smoothing_applied=False so the UI shows
+    'Smoothing: skipped' instead of misleading the user."""
+    _stub_engines_for_orchestrator(monkeypatch)
+
+    pre_smoothing_marker = {"svg": None}
+
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
+        _ = width, height, kind, score_fn, settings
+        pre_smoothing_marker["svg"] = svg
+        return (svg, "none", 0.0)
+
+    monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
+
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=False,
+    )
+
+    assert out.smoothing_applied is False
+    assert out.smoothing_method == "none"
+    assert out.smoothing_delta == 0.0
+    assert out.svg == pre_smoothing_marker["svg"], (
+        "method='none' must preserve the pre-smoothing SVG byte-for-byte"
+    )
+
+
+def test_orchestrator_emits_smoothing_progress_message(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A progress callback must receive a message on the 'smoothing' phase that
+    names which method ran, so the stepper can show 'Smoothing edges: applied
+    via supersample (delta +0.001)' instead of just 'Smoothing edges'."""
+    _stub_engines_for_orchestrator(monkeypatch)
+
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
+        _ = svg, width, height, kind, score_fn, settings
+        return ("<svg id='smoothed'/>", "supersample", 0.0010)
+
+    monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
+
+    messages: list[tuple[str, str]] = []
+    orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="vtracer",
+        fontless=False,
+        progress_callback=lambda phase, message: messages.append((phase, message)),
+    )
+
+    smoothing_msgs = [m for phase, m in messages if phase == "smoothing"]
+    assert smoothing_msgs, (
+        f"expected at least one progress message on the 'smoothing' phase; "
+        f"got phases={[p for p, _ in messages]}"
+    )
+    assert any("supersample" in m.lower() for m in smoothing_msgs), (
+        "smoothing progress message must name the method that ran "
+        f"(got {smoothing_msgs!r})"
+    )

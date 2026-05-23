@@ -8,7 +8,7 @@
 
 **The most accurate image → fontless SVG converter available!** Not by picking one tracer and hoping for the best, but by running multiple vectorization engines in parallel, scoring every candidate with perceptual metrics, and iteratively **diffing, patching, and merging** corrective paths until fidelity plateaus.
 
-SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, and a **residual-overlay refinement loop** on every conversion that surgically fixes whatever the base engine missed. Optional **MPP / x402** payments let autonomous agents pay per conversion.
+SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, a **residual-overlay refinement loop**, and a **geometric smoothing post-process** that rewrites choppy letter contours into smooth Bezier curves on every conversion. Optional **MPP / x402** payments let autonomous agents pay per conversion.
 
 ---
 
@@ -102,7 +102,22 @@ The loop stops when:
 
 Accepted passes are counted in the API response as `refine_passes`; peak residual coverage as `refine_coverage`.
 
-### Phase 5: Fontless sanitize
+### Phase 5: Geometric smoothing
+
+Even the refined winner often has stair-stepped letter contours (this is the canonical cleo regression: a 2-color brand mark traced as a chain of pixel-aligned micro line segments). DinoScore and LPIPS pick the *least choppy* candidate but cannot rewrite a chosen candidate's geometry, so a dedicated post-process pass smooths the final SVG before sanitize.
+
+The pass is a **hybrid** of two complementary methods, picked by which one survives the gates:
+
+| Method | What it does | When it wins |
+|--------|--------------|--------------|
+| **B. Supersample-retrace** | Rasterize the chosen SVG at `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x source dims (default 4x), apply a small Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 0.7) to damp pixel-step ramps in the rendered AA, then re-trace with VTracer in `mode=spline`. Renormalizes viewBox back to the input dimensions. Cheap, reuses existing tools. | Round-letter / curve-dominated logos (cleo, most brand marks with rounded letterforms). |
+| **A. Schneider Bezier refit** | Parse each `<path d>` with `svgpathtools`, sample to a dense polyline, run Ramer-Douglas-Peucker at `PATH_SMOOTHING_RDP_TOLERANCE_LOGO` (default 1.5 px) to collapse pixel-step noise, detect real corners by turn angle (`PATH_SMOOTHING_CORNER_ANGLE_DEG`, default 75 deg), and refit smooth cubic Beziers between corners with Schneider's least-squares algorithm. | Corner-heavy logos / icons where B would round off real geometry. |
+
+**Acceptance gates.** Both methods must pass the DinoScore gate (`PATH_SMOOTHING_MAX_DELTA`, default 0.01: smoothed dino must not drop by more than this). B additionally has to pass a **corner-preservation histogram check**: the smoothed SVG must retain at least `PATH_SMOOTHING_CORNER_RETENTION_THRESHOLD` (default 0.8 = 80%) of the original sharp vertices. If the original has no sharp corners (cleo) the check vacuously passes; if it has many (an angular icon) and B rounds them off, the corner check rejects B and A takes over. If both methods fail their gates the unsmoothed SVG is kept and the metrics panel shows `Smoothing: skipped`.
+
+Skipped entirely for `kind=photo` (we want photographic detail preserved) and disable-able via `PATH_SMOOTHING_ENABLED=false`.
+
+### Phase 6: Fontless sanitize
 
 If `fontless=true` (default), `<text>` elements and font references are stripped or converted to paths so the output is pure geometry: no embedded fonts, no system-font dependencies.
 
@@ -118,6 +133,7 @@ While a job runs, the orchestrator emits a progress message **after each engine 
 [vtracer_mono  ] VTracer monochrome: dino=0.947 lpips=0.991 mean=0.969
 [refining      ] Winner: vtracer_mono (mean(dino,lpips)=0.969) out of 4 engine(s)
 [refining      ] Refinement accepted 3 pass(es), final dino=0.953 lpips=0.992
+[smoothing     ] Smoothing accepted via supersample (dino 0.951, delta -0.002)
 [sanitizing    ] Cleaning up SVG
 ```
 
@@ -287,6 +303,19 @@ REFINE_MAX_PASSES=20
 REFINE_MIN_DELTA=0.0005
 REFINE_RESIDUAL_THRESHOLD=12
 REFINE_MIN_MASK_RATIO=0.0005
+```
+
+Geometric smoothing tuning (optional; smoothing always runs unless `PATH_SMOOTHING_ENABLED=false` or `kind=photo`):
+
+```env
+PATH_SMOOTHING_ENABLED=true
+PATH_SMOOTHING_MAX_DELTA=0.01
+PATH_SMOOTHING_SUPERSAMPLE_SCALE=4
+PATH_SMOOTHING_BLUR_SIGMA=0.7
+PATH_SMOOTHING_CORNER_ANGLE_DEG=75
+PATH_SMOOTHING_CORNER_RETENTION_THRESHOLD=0.8
+PATH_SMOOTHING_RDP_TOLERANCE_LOGO=1.5
+PATH_SMOOTHING_RDP_TOLERANCE_ILLUSTRATION=0.6
 ```
 
 ### Tests
@@ -524,7 +553,7 @@ Paid flow: pay on `POST /api/vectorize` → `{ "job_id" }` → poll `GET /api/jo
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/vectorize` | Start conversion (multipart: `file` **or** `image_url`, plus `quality`, `engine`, `fontless`). `engine` is one of `auto`, `starvector`, `vtracer`, `vtracer_smooth`, `vtracer_mono`. |
-| GET | `/api/jobs/{id}` | Job status + result. `metrics` includes `dino_score`, `lpips`, `engine`, `candidates_tried`, `path_count`, `ms`, `base_dino_score`, `refine_passes`, `refine_coverage`, `decision` (winner summary), and `candidate_scores` (per-engine breakdown). |
+| GET | `/api/jobs/{id}` | Job status + result. `metrics` includes `dino_score`, `lpips`, `engine`, `candidates_tried`, `path_count`, `ms`, `base_dino_score`, `refine_passes`, `refine_coverage`, `decision` (winner summary), `candidate_scores` (per-engine breakdown), `smoothing_applied`, `smoothing_method` (`'none'` / `'supersample'` / `'bezier_refit'`), and `smoothing_delta`. |
 | GET | `/api/jobs/{id}/svg` | Download SVG |
 | GET | `/.well-known/agent-api` | Agent API instructions (JSON) |
 | GET | `/.well-known/mpp-discovery` | MPP payment discovery ($0.50/conversion) |

@@ -13,10 +13,14 @@ JobPhase = Literal[
     "vtracer_smooth",
     "vtracer_mono",
     "refining",
+    "smoothing",
     "sanitizing",
     "done",
     "failed",
 ]
+
+
+SmoothingMethod = Literal["none", "supersample", "bezier_refit"]
 
 
 class JobCreateResponse(BaseModel):
@@ -47,6 +51,9 @@ class JobMetrics(BaseModel):
     refine_coverage: float = 0.0
     candidate_scores: list[CandidateScore] = Field(default_factory=list)
     decision: str = ""
+    smoothing_applied: bool = False
+    smoothing_method: SmoothingMethod = "none"
+    smoothing_delta: float = 0.0
 
 
 class JobResult(BaseModel):

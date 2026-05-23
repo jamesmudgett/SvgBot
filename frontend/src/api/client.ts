@@ -16,9 +16,13 @@ export type JobPhase =
   | "vtracer_smooth"
   | "vtracer_mono"
   | "refining"
+  | "smoothing"
   | "sanitizing"
   | "done"
   | "failed";
+
+/** Which post-process smoothing method (if any) produced the final SVG. */
+export type SmoothingMethod = "none" | "supersample" | "bezier_refit";
 
 export interface CandidateScore {
   engine: string;
@@ -41,6 +45,9 @@ export interface JobMetrics {
   refine_coverage?: number;
   candidate_scores?: CandidateScore[];
   decision?: string;
+  smoothing_applied?: boolean;
+  smoothing_method?: SmoothingMethod;
+  smoothing_delta?: number;
 }
 
 export interface JobResult {

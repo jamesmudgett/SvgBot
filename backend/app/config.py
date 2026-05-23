@@ -96,6 +96,26 @@ class Settings(BaseSettings):
     vtracer_smooth_palette_size: int = 6
     vtracer_smooth_bilateral: bool = True
 
+    # Geometric smoothing post-process pass (Phase 5). Hybrid B-then-A strategy:
+    # supersample-retrace first, Schneider Bezier refit as fallback. See
+    # backend/app/services/smooth_paths.py.
+    path_smoothing_enabled: bool = True
+    # DinoScore (ResNet-50 features) is sensitive to sub-pixel alignment; a
+    # smoothed SVG with visually identical or better geometry can score ~0.005
+    # lower than its choppy original purely because pixels shifted. The gate
+    # needs enough headroom to accept those wins; the corner-preservation
+    # check guards against catastrophic geometry damage independently.
+    path_smoothing_max_delta: float = 0.01
+    path_smoothing_supersample_scale: int = 4
+    path_smoothing_blur_sigma: float = 0.7
+    path_smoothing_corner_angle_deg: float = 75.0
+    path_smoothing_corner_retention_threshold: float = 0.8
+    # rdp_tolerance is in user-units (typically pixels). VTracer's stair-stepped
+    # output has 1-2 px amplitude noise along letter contours; a tolerance of
+    # ~1.5 collapses those steps while preserving real geometry.
+    path_smoothing_rdp_tolerance_logo: float = 1.5
+    path_smoothing_rdp_tolerance_illustration: float = 0.6
+
     # Payments ($0.50 per conversion when enabled)
     payments_enabled: bool = False
     price_per_conversion_usd: str = "0.50"

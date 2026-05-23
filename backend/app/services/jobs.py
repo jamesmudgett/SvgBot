@@ -119,6 +119,9 @@ def _run_job(
                 refine_coverage=out.refine_coverage,
                 candidate_scores=[CandidateScore(**c) for c in out.candidate_scores],
                 decision=out.decision,
+                smoothing_applied=out.smoothing_applied,
+                smoothing_method=out.smoothing_method,  # type: ignore[arg-type]
+                smoothing_delta=out.smoothing_delta,
             ),
         )
         job.status = "completed"

@@ -8,7 +8,13 @@ from typing import Callable
 from PIL import Image
 
 from app.config import EngineChoice, QualityTier, get_settings
-from app.services import preprocess, refine, starvector_engine, vtracer_engine
+from app.services import (
+    preprocess,
+    refine,
+    smooth_paths,
+    starvector_engine,
+    vtracer_engine,
+)
 from app.services.dino_score import score_svg
 from app.services.fontless import enforce_fontless
 from app.services.preprocess import classify_image, image_stats, load_image_bytes
@@ -42,6 +48,7 @@ _PHASE_LABELS: dict[str, str] = {
     "vtracer_smooth": "Smoothing curves",
     "vtracer_mono": "Tracing 2-color logo",
     "refining": "Refining details",
+    "smoothing": "Smoothing edges",
     "sanitizing": "Cleaning up SVG",
     "done": "Done",
     "failed": "Failed",
@@ -79,6 +86,9 @@ class VectorizeOutput:
     refine_coverage: float = 0.0
     candidate_scores: list[dict] = field(default_factory=list)
     decision: str = ""
+    smoothing_applied: bool = False
+    smoothing_method: str = "none"
+    smoothing_delta: float = 0.0
 
 
 def _pick_best_candidate(candidates: list[_Candidate], kind: str) -> _Candidate:
@@ -369,6 +379,49 @@ def vectorize_bytes(
     else:
         report("refining", "Refinement: no overlays improved the base SVG")
 
+    smoothing_applied = False
+    smoothing_method = "none"
+    smoothing_delta = 0.0
+    if settings.path_smoothing_enabled and kind != "photo":
+        report("smoothing", "Smoothing edges...")
+
+        def _smoothing_score(candidate_svg: str) -> float:
+            dino_val, _ = score_svg(img, candidate_svg, width, height)
+            return dino_val
+
+        try:
+            smoothed_svg, method, delta = smooth_paths.smooth_svg(
+                final_svg,
+                width,
+                height,
+                kind=kind,
+                score_fn=_smoothing_score,
+                settings=settings,
+            )
+        except Exception as exc:
+            logger.warning("smoothing pass failed, keeping refined SVG: %s", exc)
+            smoothed_svg, method, delta = final_svg, "none", 0.0
+
+        smoothing_method = method
+        smoothing_delta = float(delta)
+        if method != "none":
+            final_svg = smoothed_svg
+            final_dino, final_lpips = score_svg(img, final_svg, width, height)
+            smoothing_applied = True
+            report(
+                "smoothing",
+                f"Smoothing accepted via {method} "
+                f"(dino {final_dino:.3f}, delta {delta:+.3f})",
+            )
+        else:
+            report(
+                "smoothing",
+                "Smoothing: no method improved the SVG, kept refined output",
+            )
+    else:
+        reason = "kind=photo" if kind == "photo" else "disabled"
+        report("smoothing", f"Smoothing skipped ({reason})")
+
     report("sanitizing")
 
     if fontless:
@@ -381,6 +434,9 @@ def vectorize_bytes(
             final_lpips = base.lpips
             refine_passes = 0
             refine_coverage = 0.0
+            smoothing_applied = False
+            smoothing_method = "none"
+            smoothing_delta = 0.0
 
     candidate_scores = [
         {
@@ -410,4 +466,7 @@ def vectorize_bytes(
         refine_coverage=refine_coverage,
         candidate_scores=candidate_scores,
         decision=decision,
+        smoothing_applied=smoothing_applied,
+        smoothing_method=smoothing_method,
+        smoothing_delta=smoothing_delta,
     )

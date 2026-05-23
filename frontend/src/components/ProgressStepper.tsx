@@ -6,11 +6,7 @@ interface Step {
   label: string;
   /** Hide unless the phase is actually active or just completed (e.g. "fetching" only when URL mode). */
   conditional?: boolean;
-  /**
-   * Engine-specific step: only show once the backend reports this phase
-   * (or while it is the active phase). Auto mode does not always run every
-   * engine (e.g. vtracer_mono only for logos, vtracer_smooth not for photos).
-   */
+  /** Auto-only engine pass: may be skipped depending on image kind / GPU availability. */
   engineStep?: boolean;
 }
 
@@ -22,6 +18,7 @@ const ALL_STEPS: Step[] = [
   { id: "vtracer_smooth", label: "Smoothing curves", engineStep: true },
   { id: "vtracer_mono", label: "Tracing 2-color logo", engineStep: true },
   { id: "refining", label: "Refining details" },
+  { id: "smoothing", label: "Smoothing edges" },
   { id: "sanitizing", label: "Cleaning up SVG" },
 ];
 
@@ -30,28 +27,30 @@ const PHASE_RANK = ALL_STEPS.reduce<Record<string, number>>((acc, step, idx) => 
   return acc;
 }, {});
 
-function pickSteps(
-  engine: EngineChoice,
-  source: "file" | "url",
-  phaseLog: Record<string, string> | undefined,
-  currentPhase: JobPhase | undefined,
-): Step[] {
+function pickSteps(engine: EngineChoice, source: "file" | "url"): Step[] {
   return ALL_STEPS.filter((s) => {
     if (s.id === "fetching") return source === "url";
-    if (s.id === "starvector") return engine === "starvector";
-    if (s.id === "vtracer") return engine === "vtracer";
-    if (s.id === "vtracer_smooth") return engine === "vtracer_smooth";
-    if (s.id === "vtracer_mono") return engine === "vtracer_mono";
-
-    // Auto: only show engine steps the backend actually entered. The orchestrator
-    // skips vtracer_mono for non-logos, vtracer_smooth for photos, starvector
-    // when CUDA is unavailable, etc.
-    if (engine === "auto" && s.engineStep) {
-      return Boolean(phaseLog?.[s.id] || currentPhase === s.id);
-    }
-
+    if (s.id === "starvector") return engine === "auto" || engine === "starvector";
+    if (s.id === "vtracer") return engine === "auto" || engine === "vtracer";
+    if (s.id === "vtracer_smooth") return engine === "auto" || engine === "vtracer_smooth";
+    if (s.id === "vtracer_mono") return engine === "auto" || engine === "vtracer_mono";
     return true;
   });
+}
+
+/** True when Auto mode listed this engine step but the backend never entered it. */
+function stepWasSkipped(
+  step: Step,
+  engine: EngineChoice,
+  phaseLog: Record<string, string> | undefined,
+  currentRank: number,
+  jobFinished: boolean,
+): boolean {
+  if (engine !== "auto" || !step.engineStep) return false;
+  if (phaseLog?.[step.id]) return false;
+  const rank = PHASE_RANK[step.id];
+  // Past this point in the pipeline and no progress message ever arrived.
+  return jobFinished || (currentRank >= 0 && rank < currentRank);
 }
 
 interface Props {
@@ -86,7 +85,7 @@ export default function ProgressStepper({
   if (!active && !job) return null;
 
   const currentPhase: JobPhase | undefined = job?.phase;
-  const steps = pickSteps(engine, source, phaseLog, currentPhase);
+  const steps = pickSteps(engine, source);
   const failed = job?.status === "failed";
   const completed = job?.status === "completed";
 
@@ -110,8 +109,17 @@ export default function ProgressStepper({
       <ol className="progress-steps">
         {steps.map((step) => {
           const rank = PHASE_RANK[step.id];
-          let state: "done" | "active" | "pending" | "failed" = "pending";
-          if (failed) {
+          const skipped = stepWasSkipped(
+            step,
+            engine,
+            phaseLog,
+            currentRank,
+            completed || failed,
+          );
+          let state: "done" | "active" | "pending" | "failed" | "skipped" = "pending";
+          if (skipped) {
+            state = "skipped";
+          } else if (failed) {
             if (currentPhase === step.id) state = "failed";
             else if (rank < currentRank) state = "done";
           } else if (completed) {
@@ -125,9 +133,11 @@ export default function ProgressStepper({
           const detail =
             state === "active"
               ? liveLabel
-              : (phaseLog?.[step.id] ?? "");
+              : state === "skipped"
+                ? "Skipped for this image"
+                : (phaseLog?.[step.id] ?? "");
           const showDetail =
-            (state === "done" || state === "active" || state === "failed") &&
+            (state === "done" || state === "active" || state === "failed" || state === "skipped") &&
             detail &&
             detail !== step.label;
 
@@ -137,6 +147,7 @@ export default function ProgressStepper({
                 {state === "done" && "✓"}
                 {state === "active" && <span className="spinner" />}
                 {state === "failed" && "!"}
+                {state === "skipped" && "-"}
                 {state === "pending" && ""}
               </span>
               <div className="progress-step-text">

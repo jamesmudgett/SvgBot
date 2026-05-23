@@ -7,15 +7,33 @@ import {
   type EngineChoice,
   type JobStatus,
   type QualityTier,
+  type SmoothingMethod,
   type VectorizeSource,
 } from "../api/client";
 import InfoSections from "../components/InfoSections";
 import { DEFAULT_ENGINE, ENGINE_OPTIONS } from "../engineOptions";
+import ExpandablePreview from "../components/ExpandablePreview";
 import ProgressStepper from "../components/ProgressStepper";
 import SvgPreview from "../components/SvgPreview";
 import { fitContain } from "../utils/fitContain";
 
 type SourceMode = "file" | "url";
+
+function formatSmoothingMethod(method: SmoothingMethod): string {
+  switch (method) {
+    case "supersample":
+      return "supersample retrace";
+    case "bezier_refit":
+      return "Bezier refit";
+    default:
+      return method;
+  }
+}
+
+function formatSignedDelta(delta: number): string {
+  const sign = delta >= 0 ? "+" : "";
+  return `${sign}${delta.toFixed(3)}`;
+}
 
 function loadImageSize(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -426,6 +444,21 @@ export default function HomePage() {
           {job.result.metrics.decision && (
             <p className="decision-banner">{job.result.metrics.decision}</p>
           )}
+          {job.result.metrics.smoothing_method !== undefined && (
+            <p className="smoothing-banner">
+              {job.result.metrics.smoothing_applied
+                ? `Smoothing: applied via ${formatSmoothingMethod(
+                    job.result.metrics.smoothing_method,
+                  )}${
+                    job.result.metrics.smoothing_delta !== undefined
+                      ? ` (Δdino ${formatSignedDelta(
+                          job.result.metrics.smoothing_delta,
+                        )})`
+                      : ""
+                  }`
+                : "Smoothing: skipped (no method improved the SVG)"}
+            </p>
+          )}
           {job.result.metrics.candidate_scores &&
             job.result.metrics.candidate_scores.length > 0 && (
               <details className="candidate-breakdown">
@@ -499,15 +532,23 @@ export default function HomePage() {
           <h3>Original</h3>
           <div ref={uploadBoxRef} className="preview-box preview-box-upload">
             {previewUrl ? (
-              <div
-                className="preview-frame"
-                style={
+              <ExpandablePreview
+                label="Original preview"
+                frameStyle={
                   displaySize
                     ? {
                         width: displaySize.width,
                         height: displaySize.height,
                       }
                     : undefined
+                }
+                lightbox={
+                  <img
+                    className="preview-lightbox-media"
+                    src={previewUrl}
+                    alt="Original"
+                    crossOrigin={previewSource === "url" ? "anonymous" : undefined}
+                  />
                 }
               >
                 <img
@@ -517,7 +558,7 @@ export default function HomePage() {
                   alt="Original"
                   crossOrigin={previewSource === "url" ? "anonymous" : undefined}
                 />
-              </div>
+              </ExpandablePreview>
             ) : (
               <span className="preview-placeholder">No image</span>
             )}
@@ -527,9 +568,9 @@ export default function HomePage() {
           <h3>Vector</h3>
           <div className="preview-box preview-box-upload preview-box-vector">
             {resultSvg ? (
-              <div
-                className="preview-frame"
-                style={
+              <ExpandablePreview
+                label="Vector preview"
+                frameStyle={
                   displaySize
                     ? {
                         width: displaySize.width,
@@ -537,9 +578,10 @@ export default function HomePage() {
                       }
                     : undefined
                 }
+                lightbox={<SvgPreview svg={resultSvg} className="preview-lightbox-media" />}
               >
                 <SvgPreview svg={resultSvg} />
-              </div>
+              </ExpandablePreview>
             ) : (
               <span className="preview-placeholder">—</span>
             )}

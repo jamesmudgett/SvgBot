@@ -11,7 +11,7 @@
 # Deploy:  doctl apps create --spec .do/app.web.yaml
 # Update:  doctl apps update <web-app-id> --spec .do/app.web.yaml
 
-name: svgbot-web
+name: svgbot-frontend
 region: nyc
 
 # DNS setup before first deploy:

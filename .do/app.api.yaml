@@ -12,7 +12,7 @@
 # Deploy:  doctl apps create --spec .do/app.api.yaml
 # Update:  doctl apps update <api-app-id> --spec .do/app.api.yaml
 
-name: svgbot-api
+name: svgbot-backend
 region: nyc
 
 # DNS setup before first deploy:

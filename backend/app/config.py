@@ -108,16 +108,6 @@ class Settings(BaseSettings):
     x402_facilitator_url: str = "https://x402.org/facilitator"
     x402_network: str = "eip155:84532"
 
-    # Post-conversion SVG editor (xAI Grok). The key lives only on the
-    # server; the editor frontend never sees it. ``editor_free_limit=0``
-    # means unlimited (paywall hook is wired but disabled by default).
-    xai_api_key: str = ""
-    xai_api_url: str = "https://api.x.ai/v1/chat/completions"
-    grok_model: str = "grok-4-latest"
-    editor_free_limit: int = 0
-    editor_max_svg_bytes: int = 512 * 1024
-    editor_request_timeout_s: float = 60.0
-
     data_dir: str = "./data/jobs"
 
     @model_validator(mode="after")

@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.discovery import router as discovery_router
-from app.api.editor import router as editor_router
 from app.api.jobs import router as jobs_router
 from app.config import get_settings, starvector_config_debug
 from app.payments.setup import configure_payments
@@ -58,4 +57,3 @@ configure_payments(app)
 
 app.include_router(discovery_router)
 app.include_router(jobs_router)
-app.include_router(editor_router)

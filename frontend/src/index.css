@@ -103,6 +103,7 @@ select {
   border: 1px solid #3c4454;
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
+  max-width: 100%;
 }
 
 button {
@@ -142,7 +143,7 @@ button:disabled {
 /* Upload/original: fixed preview panel, image scaled to fit */
 .preview-box,
 .preview-box-upload {
-  background: #0f1117;
+  background: transparent;
   border-radius: 8px;
   min-height: 280px;
   height: min(360px, 50vw);
@@ -151,10 +152,6 @@ button:disabled {
   justify-content: center;
   overflow: hidden;
   padding: 0.5rem;
-}
-
-.preview-box-vector {
-  background: #1a1d26;
 }
 
 .preview-dims {
@@ -231,9 +228,16 @@ button:disabled {
   color: #cdd5e3;
 }
 
-.candidate-table {
+.candidate-table-scroll {
   margin-top: 0.6rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+}
+
+.candidate-table {
   width: 100%;
+  min-width: 420px;
   border-collapse: collapse;
   color: #9aa0a6;
 }
@@ -404,6 +408,13 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  min-width: 0;
+}
+
+.engine-field select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 
 /* ---------- Vertical progress stepper ---------- */
@@ -753,4 +764,156 @@ button:disabled {
   margin: 1.25rem 0 0;
   font-size: 0.85rem;
   color: #6c727b;
+}
+
+/* ---------- Footer ---------- */
+.site-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 2.5rem;
+}
+
+.site-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+}
+
+.site-footer-nav a {
+  font-size: 0.85rem;
+  color: #9aa0a6;
+  text-decoration: none;
+}
+
+.site-footer-nav a:hover {
+  color: #4f8cff;
+  text-decoration: underline;
+}
+
+/* ---------- Legal pages ---------- */
+.legal-page {
+  margin-bottom: 1rem;
+}
+
+.legal-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.legal-home-link {
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.legal-logo {
+  width: calc(409px * 0.45);
+}
+
+.legal-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.75rem;
+}
+
+.legal-updated {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6c727b;
+}
+
+.legal-content h2 {
+  margin: 1.75rem 0 0.65rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e8eaed;
+}
+
+.legal-content h2:first-of-type {
+  margin-top: 0.5rem;
+}
+
+.legal-content p,
+.legal-content li {
+  color: #9aa0a6;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.legal-content p {
+  margin: 0 0 0.85rem;
+}
+
+.legal-content ul {
+  margin: 0 0 0.85rem;
+  padding-left: 1.25rem;
+}
+
+.legal-content li + li {
+  margin-top: 0.35rem;
+}
+
+.legal-content a {
+  color: #4f8cff;
+  text-decoration: none;
+}
+
+.legal-content a:hover {
+  text-decoration: underline;
+}
+
+.legal-content code {
+  font-size: 0.85em;
+  background: #0f1117;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 640px) {
+  #root {
+    padding: 1rem 0.85rem;
+  }
+
+  .panel {
+    padding: 1rem;
+  }
+
+  .controls {
+    gap: 0.75rem;
+  }
+
+  .controls .engine-field {
+    flex: 1 1 100%;
+  }
+
+  .controls button {
+    width: 100%;
+  }
+
+  .metrics {
+    gap: 0.75rem 1.25rem;
+    font-size: 0.85rem;
+  }
+
+  .candidate-table {
+    font-size: 0.8rem;
+  }
+
+  .candidate-table th,
+  .candidate-table td {
+    padding: 0.35rem 0.5rem;
+    white-space: nowrap;
+  }
+
+  .progress-step-detail {
+    font-size: 0.75rem;
+  }
+
+  .download-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
 }

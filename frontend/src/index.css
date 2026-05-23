@@ -263,6 +263,65 @@ button:disabled {
   color: #4f8cff;
 }
 
+.download-row {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.1rem;
+  background: linear-gradient(180deg, #3fb95a 0%, #2ea84a 100%);
+  color: #f0fff5;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 4px 12px rgba(52, 199, 89, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.download-btn:hover {
+  background: linear-gradient(180deg, #46c563 0%, #34b455 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 6px 16px rgba(52, 199, 89, 0.35);
+  transform: translateY(-1px);
+}
+
+.download-btn:active {
+  transform: translateY(0);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 2px 6px rgba(52, 199, 89, 0.2);
+}
+
+.download-btn:focus-visible {
+  outline: 2px solid #7fd998;
+  outline-offset: 2px;
+}
+
+.download-btn-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.download-btn-meta {
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  color: rgba(240, 255, 245, 0.85);
+}
+
 .error {
   color: #ff6b6b;
   margin-top: 0.5rem;

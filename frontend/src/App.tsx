@@ -461,11 +461,34 @@ export default function App() {
                 </table>
               </details>
             )}
-          <p style={{ marginTop: "1rem" }}>
-            <a href={svgDownloadUrl(job.job_id)} download={`${job.job_id}.svg`}>
-              Download SVG
+          <div className="download-row">
+            <a
+              className="download-btn"
+              href={svgDownloadUrl(job.job_id)}
+              download={`${job.job_id}.svg`}
+            >
+              <svg
+                className="download-btn-icon"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden
+              >
+                <path
+                  d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>Download SVG</span>
+              <span className="download-btn-meta">
+                {(job.result.svg.length / 1024).toFixed(1)} KB
+              </span>
             </a>
-          </p>
+          </div>
         </div>
       )}
 

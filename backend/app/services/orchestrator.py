@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from PIL import Image
@@ -77,6 +77,8 @@ class VectorizeOutput:
     base_dino_score: float | None = None
     refine_passes: int = 0
     refine_coverage: float = 0.0
+    candidate_scores: list[dict] = field(default_factory=list)
+    decision: str = ""
 
 
 def _pick_best_candidate(candidates: list[_Candidate], kind: str) -> _Candidate:
@@ -247,53 +249,96 @@ def vectorize_bytes(
     img, arr = load_image_bytes(data, settings.max_image_dimension)
     width, height = img.size
     stats = image_stats(arr)
-    kind = classify_image(stats)
+    raw_kind = classify_image(stats)
+    is_mono = preprocess.is_monochrome_logo(arr)
+    # Cleo-style logos have AA fragments that push unique_colors above 32 so
+    # classify_image returns 'illustration'. is_monochrome_logo bucket-counts the
+    # underlying colors and correctly says 'this is effectively 2 tones'; we
+    # promote those images to 'logo' so the logo-specific routing (mono pass,
+    # mean-rank metric) actually runs.
+    kind = "logo" if is_mono else raw_kind
+    detected = (
+        f"Detected: {kind} ({stats['unique_colors']} unique colors, "
+        f"edge_density={stats['edge_density']:.3f}"
+        + (", monochrome" if is_mono else "")
+        + ")"
+    )
+    report("preprocessing", detected)
+    logger.info(detected)
     k = settings.starvector_k_high if quality == "high" else settings.starvector_k_standard
 
     candidates: list[_Candidate] = []
 
+    def _announce(candidate: _Candidate | None, engine_label: str, phase: str) -> None:
+        if candidate is None:
+            report(phase, f"{engine_label}: no output (skipped)")
+            return
+        report(
+            phase,
+            f"{engine_label}: dino={candidate.dino:.3f} "
+            f"lpips={candidate.lpips:.3f} mean={(candidate.dino + candidate.lpips) / 2:.3f}",
+        )
+
     if engine in ("auto", "starvector"):
-        report("starvector")
+        report("starvector", f"StarVector: running {k} candidate(s)...")
         sv = _run_starvector(img, width, height, k, required=engine == "starvector")
         if sv:
             candidates.append(sv)
+        _announce(sv, "StarVector", "starvector")
 
     run_vtracer = engine == "vtracer" or (
         engine == "auto" and (settings.auto_use_ensemble or not candidates)
     )
     if run_vtracer:
-        report("vtracer")
+        report("vtracer", "VTracer: tracing...")
         vt = _run_vtracer(img, width, height, kind)
         if vt:
             candidates.append(vt)
+        _announce(vt, "VTracer", "vtracer")
 
     run_smooth = engine == "vtracer_smooth" or (
         engine == "auto" and settings.vtracer_smooth_enabled and kind != "photo"
     )
     if run_smooth:
-        report("vtracer_smooth")
+        report("vtracer_smooth", "VTracer smooth: palette + smooth-curve tracing...")
         sm = _run_vtracer_smooth(img, width, height, kind)
         if sm:
             candidates.append(sm)
         elif engine == "vtracer_smooth":
             raise RuntimeError("Smooth-curve VTracer pipeline produced no output")
+        _announce(sm, "VTracer smooth", "vtracer_smooth")
 
     run_mono = engine == "vtracer_mono" or (
-        engine == "auto" and kind == "logo" and preprocess.is_monochrome_logo(arr)
+        engine == "auto" and kind == "logo"
     )
     if run_mono:
-        report("vtracer_mono")
+        report("vtracer_mono", "VTracer monochrome: palette=2 binary trace...")
         mn = _run_vtracer_mono(img, width, height, kind)
         if mn:
             candidates.append(mn)
         elif engine == "vtracer_mono":
             raise RuntimeError("Monochrome VTracer pipeline produced no output")
+        _announce(mn, "VTracer monochrome", "vtracer_mono")
 
     if not candidates:
         raise RuntimeError("Vectorization produced no output")
 
     base = _pick_best_candidate(candidates, kind)
     total_tried = sum(c.tried for c in candidates)
+
+    rank_label = (
+        "mean(dino,lpips)" if kind == "logo" else "dino"
+    )
+    if kind == "logo":
+        winner_score = (base.dino + base.lpips) / 2
+    else:
+        winner_score = base.dino
+    decision = (
+        f"Winner: {base.engine} ({rank_label}={winner_score:.3f}) "
+        f"out of {len(candidates)} engine(s)"
+    )
+    report("refining", decision)
+    logger.info(decision)
 
     base_dino = base.dino
     final_svg = base.svg
@@ -302,7 +347,6 @@ def vectorize_bytes(
     refine_passes = 0
     refine_coverage = 0.0
 
-    report("refining")
     refine_cap = _refine_passes_for_quality(quality, settings.refine_max_passes)
     try:
         result = refine.iterative_refine(
@@ -317,6 +361,13 @@ def vectorize_bytes(
         _, final_lpips = score_svg(img, final_svg, width, height)
         refine_passes = result.passes
         refine_coverage = result.coverage
+        report(
+            "refining",
+            f"Refinement accepted {refine_passes} pass(es), "
+            f"final dino={final_dino:.3f} lpips={final_lpips:.3f}",
+        )
+    else:
+        report("refining", "Refinement: no overlays improved the base SVG")
 
     report("sanitizing")
 
@@ -330,6 +381,18 @@ def vectorize_bytes(
             final_lpips = base.lpips
             refine_passes = 0
             refine_coverage = 0.0
+
+    candidate_scores = [
+        {
+            "engine": c.engine,
+            "dino": round(c.dino, 4),
+            "lpips": round(c.lpips, 4),
+            "mean": round((c.dino + c.lpips) / 2, 4),
+            "selected": c is base,
+            "tried": c.tried,
+        }
+        for c in candidates
+    ]
 
     ms = int((time.perf_counter() - started) * 1000)
     return VectorizeOutput(
@@ -345,4 +408,6 @@ def vectorize_bytes(
         base_dino_score=base_dino,
         refine_passes=refine_passes,
         refine_coverage=refine_coverage,
+        candidate_scores=candidate_scores,
+        decision=decision,
     )

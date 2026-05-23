@@ -14,52 +14,72 @@ SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical colo
 
 SvgBot treats vectorization as a **search-and-refine** problem, not a single pass through one algorithm.
 
-### Phase 1 — Preprocess & classify
+### Phase 1: Preprocess & classify
 
-The input image is loaded, resized (long edge capped at 2048 px), and analyzed for **unique color count** and **edge density**. That classifies it as `logo`, `illustration`, or `photo`, which selects VTracer parameter grids and whether the smooth-curve pipeline runs.
+The input image is loaded, resized (long edge capped at 2048 px), and analyzed for **unique color count** and **edge density**. That classifies it as `logo`, `illustration`, or `photo`, which selects VTracer parameter grids and which downstream candidates run.
 
-### Phase 2 — Multi-engine candidate generation
+A second classifier, **`is_monochrome_logo`**, bucket-counts the image into 64 coarse RGB bins and asks whether the top 2 bins cover >=92% of pixels. This catches **monochrome brand marks whose anti-aliasing pushes `unique_colors` above the logo threshold** (the cleo regression: 64 unique colors after AA, but truly 2 tones underneath). When it fires, the orchestrator **promotes the effective kind to `logo`** so the logo-only routing below applies regardless of what the color/edge classifier said.
 
-The default engine is **`auto`**: SvgBot runs StarVector, VTracer, and VTracer smooth in parallel, ranks them by DinoScore (with an LPIPS tiebreak on logos when scores are close), and refines the winner (**best when you want maximum accuracy and can wait longer**). Pick a single engine when you know what fits:
+### Phase 2: Multi-engine candidate generation
+
+The default engine is **`auto`**: SvgBot runs every applicable engine, scores them, picks a winner, and refines. Pick a single engine when you know what fits:
 
 | Engine | Best for | What it does |
 |--------|----------|--------------|
-| **Auto** | Maximum accuracy | Runs all engines below in parallel; keeps the highest-scoring candidate. Default. |
-| **VTracer smooth** | Logos, icons, brand marks | Bilateral filter + k-means palette quantization (`clean_for_tracing`) produces flat color regions with crisp edges, then VTracer traces with a **smooth-curve grid** (`LOGO_SMOOTH_GRID`) tuned for fewer control points and cleaner splines. Still scored against the **original** image. |
-| **StarVector** | Illustrations, complex artwork | A vision-language model (`starvector-1b-im2svg` or `8b`) generates SVG path markup directly from the image. Runs `k` stochastic samples (3 standard / 5 high quality); each sample is rasterized and scored. Needs a CUDA GPU. |
+| **Auto** | Maximum accuracy | Runs every applicable engine below; ranks them with a kind-aware metric (see Phase 3). Default. |
+| **StarVector** | Illustrations, complex artwork | A vision-language model (`starvector-1b-im2svg` or `8b`) generates SVG path markup directly from the image. Runs `k` stochastic samples (3 standard / 5 high quality); each sample is rasterized and scored, then a **best-of-k** is chosen with a DinoScore primary + LPIPS tiebreak (`_LPIPS_TIEBREAK_DINO_EPS = 0.02`). Needs a CUDA GPU. |
 | **VTracer** | Photos, gradients, many colors | Classical color-region tracing on the raw image. **Auto-tune** sweeps a parameter grid (`LOGO_GRID` for logos, `DEFAULT_GRID` otherwise) and keeps the highest-scoring result. |
+| **VTracer smooth** | Logos, icons, brand marks | Bilateral filter + k-means palette quantization (`clean_for_tracing`) produces flat color regions with crisp edges, then VTracer traces with a **smooth-curve grid** (`LOGO_SMOOTH_GRID`) tuned for fewer control points and cleaner splines. Skipped for photos. Still scored against the **original** image. |
+| **VTracer mono** | 2-color logos (cleo, wordmarks) | **Forces a 2-color palette** before tracing, collapsing every anti-aliased shade of the foreground into a single fill. Uses `LOGO_MONO_GRID` (binary colormode, low filter_speckle) so the output is a handful of clean paths instead of one micro-path per AA pixel. Skipped for non-logos. |
 
-**Inside Auto**, three independent candidates are generated:
+**Inside Auto**, the candidate set is:
 
-| Candidate | Best for | Notes |
-|-----------|----------|-------|
-| **StarVector** | Illustrations, complex artwork | Neural im2svg; skipped when CUDA is unavailable. |
-| **VTracer** | Photos, gradients | Raw-image tracing with auto-tuned grids. |
-| **VTracer smooth** | Logos, flat fills | Palette-quantized input + smooth-curve grid; skipped for photos. |
+| Candidate | When it runs |
+|-----------|--------------|
+| **StarVector** | Whenever CUDA is available; skipped silently otherwise. |
+| **VTracer** | Always. |
+| **VTracer smooth** | Whenever `kind != "photo"` and `VTRACER_SMOOTH_ENABLED=true` (default). |
+| **VTracer mono** | Whenever the effective kind is `logo` (including monochrome-promoted illustrations). |
 
 Each candidate is rasterized back to pixels and scored with:
 
-- **DinoScore** — ResNet-50 embedding cosine distance between original and rendered SVG (higher = better perceptual match). Used as the primary ranking metric.
-- **LPIPS** — AlexNet perceptual distance (reported alongside DinoScore).
+- **DinoScore**: ResNet-50 embedding cosine similarity between original and rendered SVG (higher = better global match).
+- **LPIPS**: AlexNet perceptual similarity (higher = better local crispness, e.g. letterforms).
 
-All candidates are sorted by DinoScore; the winner becomes the **base SVG** for refinement.
+### Phase 3: Kind-aware ranking and selection
 
-### Phase 3 — Iterative residual diff, vectorize, merge
+The winner is chosen with a **kind-aware** rank function (`orchestrator._pick_best_candidate`):
 
-Every conversion runs refinement. Even the best single-pass SVG leaves pixels that don't match the source: missing letter counters, softened corners, anti-aliasing gaps, small color patches. SvgBot closes that gap with up to **20 refinement passes** (`REFINE_MAX_PASSES`, default 20).
+| Effective kind | Rank metric | Why |
+|----------------|-------------|-----|
+| `logo` (including monochrome-promoted) | `mean(dino, lpips)` | DinoScore alone over-weights global color match. On letterforms, two candidates can have near-identical DinoScores but very different glyph crispness; LPIPS catches that. Mean-ranking is what fixed the cleo regression. |
+| `illustration`, `photo` | `dino` | LPIPS over-rewards pixel-perfect edge fidelity, which is the wrong signal for photographic or illustrative content. |
+
+The winner becomes the **base SVG** for refinement. The full per-engine score breakdown (`engine`, `dino`, `lpips`, `mean`, `selected`, `tried`) is returned on the job result so the UI can show **exactly which engine won and by how much**.
+
+### Phase 4: Iterative residual diff, vectorize, merge
+
+Every conversion runs refinement. Even the best single-pass SVG leaves pixels that don't match the source: missing letter counters, softened corners, anti-aliasing gaps, small color patches. SvgBot closes that gap with a bounded refinement loop whose cap depends on the **Quality tier**:
+
+| Quality | Refine pass cap | StarVector samples (`k`) |
+|---------|-----------------|--------------------------|
+| `standard` (default) | **8** | 3 |
+| `high` | `REFINE_MAX_PASSES` (default **20**) | 5 |
+
+`high` runs more StarVector candidates and lets the refinement loop work longer, at the cost of latency.
 
 Each pass:
 
 1. **Rasterize** the current best SVG back to a bitmap at the source dimensions.
-2. **Pixel diff** — Compute per-pixel RGB absolute difference between the original and the render. Pixels above a threshold (default 12, scaled per variant) form a boolean **residual mask**.
-3. **Mask filtering** — Two filters suppress false positives:
-   - **Edge exclusion** — Canny edges of the rendered SVG are dilated and removed from the mask. Anti-aliasing halos along every shape boundary would otherwise dominate the diff; real defects (malformed counters, missing dots) are interior regions that survive.
-   - **Connected-component filtering** — Blobs below a minimum area (8–48 px depending on variant) are dropped as speckle noise.
-4. **Extract residual** — Original pixels where the mask is true are copied into an RGBA image; everything else is transparent.
-5. **Vectorize residual** — Only the differing pixels are traced with VTracer using the current pass variant's parameters (`colormode`, `hierarchical`, `mode`, `filter_speckle`, `path_precision`, `color_precision`).
-6. **Merge overlay** — The corrective SVG paths are appended to the base SVG inside a `<g class="vb-refine">` group. If the base and overlay use different `viewBox` coordinate systems (common when StarVector emits normalized `0 0 1 1` units and VTracer uses pixel units), a **`transform="matrix(...)"`** maps overlay coordinates into the base canvas.
-7. **Re-score** — The merged SVG is rasterized and DinoScored against the original.
-8. **Accept or reject** — If DinoScore improved by at least `REFINE_MIN_DELTA` (default 0.0005), the merge is kept and becomes the new best SVG. Otherwise the pass counts as a failure.
+2. **Pixel diff**: compute per-pixel RGB absolute difference between the original and the render. Pixels above a threshold (default 12, scaled per variant) form a boolean **residual mask**.
+3. **Mask filtering**: two filters suppress false positives:
+   - **Edge exclusion**: Canny edges of the rendered SVG are dilated and removed from the mask. Anti-aliasing halos along every shape boundary would otherwise dominate the diff; real defects (malformed counters, missing dots) are interior regions that survive.
+   - **Connected-component filtering**: blobs below a minimum area (8-48 px depending on variant) are dropped as speckle noise.
+4. **Extract residual**: original pixels where the mask is true are copied into an RGBA image; everything else is transparent.
+5. **Vectorize residual**: only the differing pixels are traced with VTracer using the current pass variant's parameters (`colormode`, `hierarchical`, `mode`, `filter_speckle`, `path_precision`, `color_precision`).
+6. **Merge overlay**: the corrective SVG paths are appended to the base SVG inside a `<g class="vb-refine">` group. If the base and overlay use different `viewBox` coordinate systems (common when StarVector emits normalized `0 0 1 1` units and VTracer uses pixel units), a **`transform="matrix(...)"`** maps overlay coordinates into the base canvas.
+7. **Re-score**: the merged SVG is rasterized and DinoScored against the original.
+8. **Accept or reject**: if DinoScore improved by at least `REFINE_MIN_DELTA` (default 0.0005), the merge is kept and becomes the new best SVG. Otherwise the pass counts as a failure.
 
 **Six pass variants** cycle (`pass_idx % 6`), progressing from conservative (large interior defects, high `min_component_area`) to aggressive (fine near-edge defects, binary colormode, zero edge exclusion):
 
@@ -74,15 +94,37 @@ Each pass:
 
 The loop stops when:
 
-- All six variants produce masks below `REFINE_MIN_MASK_RATIO` (0.05% of pixels) — nothing left to fix.
-- Three consecutive passes fail to improve the score — diminishing returns.
+- All six variants produce masks below `REFINE_MIN_MASK_RATIO` (0.05% of pixels): nothing left to fix.
+- Three consecutive passes fail to improve the score (diminishing returns).
 - `REFINE_MAX_PASSES` is reached.
 
 Accepted passes are counted in the API response as `refine_passes`; peak residual coverage as `refine_coverage`.
 
-### Phase 4 — Fontless sanitize
+### Phase 5: Fontless sanitize
 
-If `fontless=true` (default), `<text>` elements and font references are stripped or converted to paths so the output is pure geometry — no embedded fonts, no system-font dependencies.
+If `fontless=true` (default), `<text>` elements and font references are stripped or converted to paths so the output is pure geometry: no embedded fonts, no system-font dependencies.
+
+### Live progress and per-engine score reporting
+
+While a job runs, the orchestrator emits a progress message **after each engine finishes** that names the engine and its scores, e.g.:
+
+```
+[preprocessing ] Detected: logo (64 unique colors, edge_density=0.023, monochrome)
+[starvector    ] StarVector: dino=0.951 lpips=0.962 mean=0.957
+[vtracer       ] VTracer: dino=0.929 lpips=0.987 mean=0.958
+[vtracer_smooth] VTracer smooth: dino=0.930 lpips=0.987 mean=0.959
+[vtracer_mono  ] VTracer monochrome: dino=0.947 lpips=0.991 mean=0.969
+[refining      ] Winner: vtracer_mono (mean(dino,lpips)=0.969) out of 4 engine(s)
+[refining      ] Refinement accepted 3 pass(es), final dino=0.953 lpips=0.992
+[sanitizing    ] Cleaning up SVG
+```
+
+The frontend stepper keeps each message visible on its corresponding step (not just the live phase), so by the time the job finishes you can read the entire decision trail in place.
+
+The job result also carries two structured fields the UI renders below the metrics:
+
+- `metrics.decision`: a one-line summary, e.g. `Winner: vtracer_mono (mean(dino,lpips)=0.969) out of 4 engine(s)`.
+- `metrics.candidate_scores`: a list of `{engine, dino, lpips, mean, selected, tried}` rows, one per engine that ran. The UI shows them in a collapsible **Per-engine scores** table with the winner highlighted.
 
 ---
 
@@ -102,10 +144,10 @@ Open **http://127.0.0.1:5173** in your browser.
 
 The web UI accepts input two ways:
 
-- **Upload** — drag and drop a file or click to browse (PNG, JPG, WebP, GIF, and other common formats).
-- **From URL** — paste a direct link to a publicly reachable image; the backend downloads it server-side before vectorizing.
+- **Upload**: drag and drop a file or click to browse (PNG, JPG, WebP, GIF, and other common formats).
+- **From URL**: paste a direct link to a publicly reachable image; the backend downloads it server-side before vectorizing.
 
-Choose quality and engine options, then run the conversion. The result SVG can be previewed and downloaded when the job finishes.
+Choose quality and engine options, then run the conversion. The progress panel reports each engine's DinoScore / LPIPS / mean as it finishes and prints a one-line `Winner: ...` summary before refinement starts. After completion, the result panel shows a collapsible **Per-engine scores** table so you can see exactly which engine won and by how much. The result SVG can be previewed and downloaded when the job finishes.
 
 Override ports with environment variables:
 
@@ -289,8 +331,8 @@ Paid flow: pay on `POST /api/vectorize` → `{ "job_id" }` → poll `GET /api/jo
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/vectorize` | Start conversion (multipart: `file` **or** `image_url`, plus `quality`, `engine`, `fontless`) |
-| GET | `/api/jobs/{id}` | Job status + result (includes `refine_passes`, `refine_coverage`, `dino_score`) |
+| POST | `/api/vectorize` | Start conversion (multipart: `file` **or** `image_url`, plus `quality`, `engine`, `fontless`). `engine` is one of `auto`, `starvector`, `vtracer`, `vtracer_smooth`, `vtracer_mono`. |
+| GET | `/api/jobs/{id}` | Job status + result. `metrics` includes `dino_score`, `lpips`, `engine`, `candidates_tried`, `path_count`, `ms`, `base_dino_score`, `refine_passes`, `refine_coverage`, `decision` (winner summary), and `candidate_scores` (per-engine breakdown). |
 | GET | `/api/jobs/{id}/svg` | Download SVG |
 | GET | `/.well-known/agent-api` | Agent API instructions (JSON) |
 | GET | `/.well-known/mpp-discovery` | MPP payment discovery ($0.50/conversion) |

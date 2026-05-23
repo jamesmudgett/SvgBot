@@ -23,6 +23,18 @@ class JobCreateResponse(BaseModel):
     job_id: str
 
 
+class CandidateScore(BaseModel):
+    """Per-engine score breakdown so the frontend can show the user *why* the
+    winning engine was chosen, not just the winner's final score."""
+
+    engine: str
+    dino: float
+    lpips: float
+    mean: float
+    selected: bool
+    tried: int = 1
+
+
 class JobMetrics(BaseModel):
     dino_score: float | None = None
     lpips: float | None = None
@@ -33,6 +45,8 @@ class JobMetrics(BaseModel):
     base_dino_score: float | None = None
     refine_passes: int = 0
     refine_coverage: float = 0.0
+    candidate_scores: list[CandidateScore] = Field(default_factory=list)
+    decision: str = ""
 
 
 class JobResult(BaseModel):

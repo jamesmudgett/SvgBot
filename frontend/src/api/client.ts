@@ -20,6 +20,15 @@ export type JobPhase =
   | "done"
   | "failed";
 
+export interface CandidateScore {
+  engine: string;
+  dino: number;
+  lpips: number;
+  mean: number;
+  selected: boolean;
+  tried: number;
+}
+
 export interface JobMetrics {
   dino_score: number | null;
   lpips: number | null;
@@ -30,6 +39,8 @@ export interface JobMetrics {
   base_dino_score?: number | null;
   refine_passes?: number;
   refine_coverage?: number;
+  candidate_scores?: CandidateScore[];
+  decision?: string;
 }
 
 export interface JobResult {

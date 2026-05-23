@@ -275,3 +275,130 @@ def test_vectorize_bytes_auto_engine_emits_monochrome_candidate_for_cleo_like_lo
     assert "vtracer_mono" in seen_engines, (
         "auto+monochrome-logo must trigger the dedicated 2-color tracing path"
     )
+
+
+def _make_aa_monochrome_logo_png() -> bytes:
+    """A 2-color logo with enough anti-aliasing to classify as 'illustration'.
+
+    Reproduces the cleo bug: the underlying image is monochrome but JPEG/AA
+    fragments push unique_colors above 32 so ``classify_image`` no longer
+    returns 'logo'. ``is_monochrome_logo`` correctly says True regardless.
+    """
+    import io
+
+    img = Image.new("RGB", (256, 256), (250, 245, 235))
+    arr = np.array(img)
+    arr[60:200, 60:200] = (40, 30, 25)
+    rng = np.random.default_rng(7)
+    edge = rng.integers(-50, 51, size=arr.shape, dtype=np.int16)
+    arr = np.clip(arr.astype(np.int16) + edge, 0, 255).astype(np.uint8)
+    arr[80:180, 80:180] = (40, 30, 25)
+    arr[110:150, 110:150] = (250, 245, 235)
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_vectorize_bytes_runs_mono_pass_for_monochrome_image_classified_as_illustration(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The cleo regression: ``classify_image`` returns 'illustration' (cleo has 64
+    unique colors due to AA), but the underlying image is still 2-color. The
+    orchestrator must promote to 'logo' so vtracer_mono runs and the mean-rank
+    metric is used."""
+    from app.services import preprocess, starvector_engine
+
+    monkeypatch.setattr(
+        starvector_engine, "vectorize",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            starvector_engine.StarVectorUnavailable("no gpu in test")
+        ),
+    )
+    monkeypatch.setattr(orchestrator.preprocess, "is_monochrome_logo", lambda arr: True)
+    monkeypatch.setattr(orchestrator, "classify_image", lambda stats: "illustration")
+
+    seen: list[str] = []
+    real_mono = orchestrator._run_vtracer_mono
+
+    def tracked_mono(img, w, h, kind):
+        seen.append(kind)
+        return real_mono(img, w, h, kind)
+
+    monkeypatch.setattr(orchestrator, "_run_vtracer_mono", tracked_mono)
+
+    orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="auto",
+        fontless=True,
+    )
+    assert seen, (
+        "vtracer_mono must run when is_monochrome_logo is True even if "
+        "classify_image returned 'illustration' (the cleo bug)"
+    )
+    assert seen[0] == "logo", (
+        "the kind passed to vtracer_mono must be promoted to 'logo' so the "
+        "internal `if kind != 'logo': return None` guard does not skip it"
+    )
+
+
+def test_vectorize_bytes_emits_per_engine_score_messages(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The progress callback must receive a message containing per-engine scores
+    after each engine finishes, so the user sees what each ran and what it
+    scored instead of the vague 'Generating with StarVector' text."""
+    from app.services import starvector_engine
+
+    monkeypatch.setattr(
+        starvector_engine, "vectorize",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            starvector_engine.StarVectorUnavailable("no gpu in test")
+        ),
+    )
+
+    messages: list[tuple[str, str]] = []
+
+    def cb(phase: str, message: str) -> None:
+        messages.append((phase, message))
+
+    orchestrator.vectorize_bytes(
+        _make_logo_png(),
+        quality="standard",
+        engine="auto",
+        fontless=True,
+        progress_callback=cb,
+    )
+
+    text = " ".join(m for _, m in messages).lower()
+    assert "vtracer" in text
+    assert any(
+        "dino" in m.lower() and "lpips" in m.lower() for _, m in messages
+    ), (
+        f"expected at least one progress message to include 'dino=...' and "
+        f"'lpips=...' but got: {[m for _, m in messages]}"
+    )
+    assert any("chose" in m.lower() or "winner" in m.lower() for _, m in messages), (
+        "expected a 'Chose ...' / 'Winner: ...' message naming the winning engine"
+    )
+
+
+def test_vectorize_output_carries_candidate_scores_and_decision():
+    """Each per-engine attempt's (dino, lpips) and the final selection rationale
+    must be on ``VectorizeOutput`` so the frontend can render the breakdown
+    after completion (not just the winner's metrics)."""
+    out = orchestrator.vectorize_bytes(
+        _make_logo_png(), quality="standard", engine="vtracer", fontless=True,
+    )
+    assert hasattr(out, "candidate_scores")
+    assert isinstance(out.candidate_scores, list)
+    assert len(out.candidate_scores) >= 1
+    first = out.candidate_scores[0]
+    assert {"engine", "dino", "lpips", "selected"} <= set(first.keys()), (
+        f"each candidate_scores entry must have engine/dino/lpips/selected keys, "
+        f"got {first.keys()}"
+    )
+    assert any(c["selected"] for c in out.candidate_scores), (
+        "exactly one candidate must be marked selected"
+    )
+    assert hasattr(out, "decision") and isinstance(out.decision, str) and out.decision

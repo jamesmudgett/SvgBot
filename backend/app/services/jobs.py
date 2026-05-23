@@ -8,7 +8,13 @@ from datetime import datetime, timezone
 from fastapi import BackgroundTasks
 
 from app.config import EngineChoice, QualityTier, get_settings
-from app.models.schemas import JobMetrics, JobPhase, JobResult, JobStatusResponse
+from app.models.schemas import (
+    CandidateScore,
+    JobMetrics,
+    JobPhase,
+    JobResult,
+    JobStatusResponse,
+)
 from app.services import url_fetch
 from app.services.orchestrator import vectorize_bytes
 
@@ -110,6 +116,8 @@ def _run_job(
                 base_dino_score=out.base_dino_score,
                 refine_passes=out.refine_passes,
                 refine_coverage=out.refine_coverage,
+                candidate_scores=[CandidateScore(**c) for c in out.candidate_scores],
+                decision=out.decision,
             ),
         )
         job.status = "completed"

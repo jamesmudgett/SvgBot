@@ -63,6 +63,10 @@ export default function App() {
   const [engine, setEngine] = useState<EngineChoice>(DEFAULT_ENGINE);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<JobStatus | null>(null);
+  /** Sticky map of phase -> last progress message seen for that phase. Lets the
+   * stepper show the per-engine score on each completed step even after the
+   * active phase advances. */
+  const [phaseLog, setPhaseLog] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +206,7 @@ export default function App() {
 
     setBusy(true);
     setError(null);
+    setPhaseLog({});
     setJob({
       job_id: "",
       status: "queued",
@@ -215,7 +220,12 @@ export default function App() {
         engine,
         fontless: true,
       });
-      const result = await pollJob(jobId, (j) => setJob(j));
+      const result = await pollJob(jobId, (j) => {
+        setJob(j);
+        if (j.phase && j.progress) {
+          setPhaseLog((prev) => ({ ...prev, [j.phase as string]: j.progress }));
+        }
+      });
       setJob(result);
       if (result.status === "failed") {
         setError(result.error ?? "Vectorization failed");
@@ -365,6 +375,7 @@ export default function App() {
         engine={engine}
         source={previewSource}
         active={busy}
+        phaseLog={phaseLog}
       />
 
       {error && <p className="error">{error}</p>}
@@ -412,6 +423,44 @@ export default function App() {
               Time: <strong>{job.result.metrics.ms} ms</strong>
             </span>
           </div>
+          {job.result.metrics.decision && (
+            <p className="decision-banner">{job.result.metrics.decision}</p>
+          )}
+          {job.result.metrics.candidate_scores &&
+            job.result.metrics.candidate_scores.length > 0 && (
+              <details className="candidate-breakdown">
+                <summary>
+                  Per-engine scores ({job.result.metrics.candidate_scores.length})
+                </summary>
+                <table className="candidate-table">
+                  <thead>
+                    <tr>
+                      <th>Engine</th>
+                      <th>DinoScore</th>
+                      <th>LPIPS</th>
+                      <th>Mean</th>
+                      <th>Tried</th>
+                      <th>Picked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {job.result.metrics.candidate_scores.map((c) => (
+                      <tr
+                        key={c.engine}
+                        className={c.selected ? "candidate-row-winner" : undefined}
+                      >
+                        <td>{c.engine}</td>
+                        <td>{c.dino.toFixed(3)}</td>
+                        <td>{c.lpips.toFixed(3)}</td>
+                        <td>{c.mean.toFixed(3)}</td>
+                        <td>{c.tried}</td>
+                        <td>{c.selected ? "yes" : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
           <p style={{ marginTop: "1rem" }}>
             <a href={svgDownloadUrl(job.job_id)} download={`${job.job_id}.svg`}>
               Download SVG

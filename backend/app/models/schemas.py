@@ -108,3 +108,47 @@ class AgentApiDocument(BaseModel):
     payment: AgentApiPaymentInfo
     endpoints: list[AgentApiEndpoint]
     workflow: list[str]
+
+
+class LlmEditRegion(BaseModel):
+    """User-space rectangle the user lassoed in the editor.
+
+    Forwarded to Grok so the LLM scopes its changes to that area instead
+    of touching the whole document. Coordinates are in the SVG's user
+    units, i.e. the same coordinate system as the document's viewBox.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class LlmEditRequest(BaseModel):
+    """Body for ``POST /api/editor/llm-edit``.
+
+    The frontend ships the current SVG (post-undo state), the natural-
+    language instruction, and the ids of any elements the user marqueed
+    in the editor. ``include_original`` toggles whether we attach the
+    source raster from the job so Grok can see what the user is trying
+    to match. ``region`` is an optional bounding box snapshot from the
+    marquee tool that scopes the edit.
+    """
+
+    job_id: str
+    svg: str
+    instruction: str
+    selected_ids: list[str] = Field(default_factory=list)
+    include_original: bool = False
+    region: LlmEditRegion | None = None
+    model: str | None = None
+
+
+class LlmEditResponse(BaseModel):
+    svg: str
+    summary: str
+    model: str
+    ms: int
+    tokens_in: int = 0
+    tokens_out: int = 0
+    quota_remaining: int | None = None

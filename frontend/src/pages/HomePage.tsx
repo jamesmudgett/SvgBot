@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   checkHealth,
   createVectorizeJob,
@@ -490,6 +491,25 @@ export default function HomePage() {
                 {(job.result.svg.length / 1024).toFixed(1)} KB
               </span>
             </a>
+            <Link className="edit-btn" to={`/editor/${job.job_id}`}>
+              <svg
+                className="download-btn-icon"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden
+              >
+                <path
+                  d="M4 20h4l10-10-4-4L4 16v4z M14 6l4 4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>Edit and Refine</span>
+            </Link>
           </div>
         </div>
       )}

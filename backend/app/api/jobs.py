@@ -91,3 +91,18 @@ async def download_svg(job_id: str):
         media_type="image/svg+xml",
         headers={"Content-Disposition": f'attachment; filename="{job_id}.svg"'},
     )
+
+
+@router.get("/jobs/{job_id}/original")
+async def download_original(job_id: str):
+    """Return the source raster bytes for the job.
+
+    The /editor route uses this to render an "Original" overlay on top of
+    the generated SVG. The bytes are served exactly as they were uploaded
+    (or downloaded by the URL fetcher) so the overlay matches the input.
+    """
+    blob = job_service.get_original(job_id)
+    if blob is None:
+        raise HTTPException(404, "Original not available")
+    data, mime = blob
+    return Response(content=data, media_type=mime)

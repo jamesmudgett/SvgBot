@@ -16,14 +16,20 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# cairosvg / svglib / reportlab need cairo + pango + pixbuf at runtime.
-# svglib -> rlpycairo -> pycairo: when pip can't find a prebuilt wheel it
-# compiles pycairo from source, which needs a C compiler, pkg-config, and
-# libcairo2-dev headers (App Platform hit this on pycairo 1.29.0.tar.gz).
+# Runtime libs: cairosvg / svglib / reportlab need cairo + pango + pixbuf.
+# `libgdk-pixbuf2.0-0` is the Bookworm spelling (renamed to
+# `libgdk-pixbuf-2.0-0` on Trixie, which is why we pin -bookworm above).
+#
+# Build deps: pycairo (pulled in transitively by svglib -> rlpycairo) has
+# no Linux wheel on PyPI and must be source-built via meson. That needs a
+# C toolchain (build-essential), the cairo development headers
+# (libcairo2-dev), pkg-config for meson's cairo probe, and Python.h
+# (python3-dev) for the pycairo extension module. Without these, pip
+# fails at "Unknown compiler(s)" or "Package cairo was not found".
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libcairo2 libcairo2-dev libpango-1.0-0 libgdk-pixbuf2.0-0 \
+        libcairo2 libpango-1.0-0 libgdk-pixbuf2.0-0 \
         libgl1 libglib2.0-0 \
-        gcc pkg-config \
+        build-essential libcairo2-dev pkg-config python3-dev \
         curl \
     && rm -rf /var/lib/apt/lists/*
 

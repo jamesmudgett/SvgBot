@@ -107,6 +107,24 @@ describe("EditorToolbar", () => {
     expect(onPickStroke).toHaveBeenCalledWith("#123456");
   });
 
+  it("emits 'none' when the No fill button is clicked", () => {
+    const { onPickFill } = renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: /no fill/i }));
+    expect(onPickFill).toHaveBeenCalledWith("none");
+  });
+
+  it("emits 'none' when the No stroke button is clicked", () => {
+    const { onPickStroke } = renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: /no stroke/i }));
+    expect(onPickStroke).toHaveBeenCalledWith("none");
+  });
+
+  it("disables No fill / No stroke when nothing is selected", () => {
+    renderToolbar({ selectionCount: 0 });
+    expect(screen.getByRole("button", { name: /no fill/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /no stroke/i })).toBeDisabled();
+  });
+
   it("emits Download", () => {
     const { onDownload } = renderToolbar();
     fireEvent.click(screen.getByRole("button", { name: /download/i }));

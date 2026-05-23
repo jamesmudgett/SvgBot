@@ -1046,6 +1046,29 @@ button:disabled {
   padding: 0;
 }
 
+.editor-no-color {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  background: #0f1117;
+  cursor: pointer;
+  color: inherit;
+}
+
+.editor-no-color:hover {
+  border-color: #4f8cff;
+}
+
+.editor-no-color:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .editor-overlay-field {
   display: inline-flex;
   flex-direction: row;

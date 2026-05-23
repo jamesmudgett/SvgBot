@@ -31,6 +31,40 @@ interface ToolDef {
   Icon: () => JSX.Element;
 }
 
+/** Standard "no color" swatch: a white tile with a red diagonal slash.
+ * Used for the No fill / No stroke buttons next to each color picker. */
+function NoColorIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      aria-hidden
+      role="img"
+    >
+      <rect
+        x="2"
+        y="2"
+        width="20"
+        height="20"
+        rx="3"
+        fill="#fff"
+        stroke="#5c6370"
+        strokeWidth="1.5"
+      />
+      <line
+        x1="3"
+        y1="21"
+        x2="21"
+        y2="3"
+        stroke="#e5484d"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const TOOLS: ToolDef[] = [
   {
     id: "select",
@@ -142,6 +176,16 @@ export default function EditorToolbar({
             }
             disabled={selectionCount === 0}
           />
+          <button
+            type="button"
+            className="editor-no-color"
+            onClick={() => onPickFill("none")}
+            disabled={selectionCount === 0}
+            aria-label="No fill"
+            title="Make fill transparent"
+          >
+            <NoColorIcon />
+          </button>
         </label>
         <label className="editor-color-field">
           Stroke
@@ -153,6 +197,16 @@ export default function EditorToolbar({
             }
             disabled={selectionCount === 0}
           />
+          <button
+            type="button"
+            className="editor-no-color"
+            onClick={() => onPickStroke("none")}
+            disabled={selectionCount === 0}
+            aria-label="No stroke"
+            title="Remove stroke"
+          >
+            <NoColorIcon />
+          </button>
         </label>
         <button
           type="button"

@@ -6,15 +6,21 @@ interface Step {
   label: string;
   /** Hide unless the phase is actually active or just completed (e.g. "fetching" only when URL mode). */
   conditional?: boolean;
+  /**
+   * Engine-specific step: only show once the backend reports this phase
+   * (or while it is the active phase). Auto mode does not always run every
+   * engine (e.g. vtracer_mono only for logos, vtracer_smooth not for photos).
+   */
+  engineStep?: boolean;
 }
 
 const ALL_STEPS: Step[] = [
   { id: "fetching", label: "Downloading image", conditional: true },
   { id: "preprocessing", label: "Analyzing image" },
-  { id: "starvector", label: "Generating with StarVector" },
-  { id: "vtracer", label: "Tracing with VTracer" },
-  { id: "vtracer_smooth", label: "Smoothing curves" },
-  { id: "vtracer_mono", label: "Tracing 2-color logo" },
+  { id: "starvector", label: "Generating with StarVector", engineStep: true },
+  { id: "vtracer", label: "Tracing with VTracer", engineStep: true },
+  { id: "vtracer_smooth", label: "Smoothing curves", engineStep: true },
+  { id: "vtracer_mono", label: "Tracing 2-color logo", engineStep: true },
   { id: "refining", label: "Refining details" },
   { id: "sanitizing", label: "Cleaning up SVG" },
 ];
@@ -24,13 +30,26 @@ const PHASE_RANK = ALL_STEPS.reduce<Record<string, number>>((acc, step, idx) => 
   return acc;
 }, {});
 
-function pickSteps(engine: EngineChoice, source: "file" | "url"): Step[] {
+function pickSteps(
+  engine: EngineChoice,
+  source: "file" | "url",
+  phaseLog: Record<string, string> | undefined,
+  currentPhase: JobPhase | undefined,
+): Step[] {
   return ALL_STEPS.filter((s) => {
     if (s.id === "fetching") return source === "url";
-    if (s.id === "starvector") return engine === "auto" || engine === "starvector";
-    if (s.id === "vtracer") return engine === "auto" || engine === "vtracer";
-    if (s.id === "vtracer_smooth") return engine === "auto" || engine === "vtracer_smooth";
-    if (s.id === "vtracer_mono") return engine === "auto" || engine === "vtracer_mono";
+    if (s.id === "starvector") return engine === "starvector";
+    if (s.id === "vtracer") return engine === "vtracer";
+    if (s.id === "vtracer_smooth") return engine === "vtracer_smooth";
+    if (s.id === "vtracer_mono") return engine === "vtracer_mono";
+
+    // Auto: only show engine steps the backend actually entered. The orchestrator
+    // skips vtracer_mono for non-logos, vtracer_smooth for photos, starvector
+    // when CUDA is unavailable, etc.
+    if (engine === "auto" && s.engineStep) {
+      return Boolean(phaseLog?.[s.id] || currentPhase === s.id);
+    }
+
     return true;
   });
 }
@@ -66,8 +85,8 @@ export default function ProgressStepper({
 }: Props) {
   if (!active && !job) return null;
 
-  const steps = pickSteps(engine, source);
   const currentPhase: JobPhase | undefined = job?.phase;
+  const steps = pickSteps(engine, source, phaseLog, currentPhase);
   const failed = job?.status === "failed";
   const completed = job?.status === "completed";
 

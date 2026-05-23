@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import {
   getJob,
@@ -13,6 +13,7 @@ import {
   svgDownloadUrl,
   type JobStatus,
 } from "../api/client";
+import { EDITOR_ENABLED } from "../config";
 import ChatDock from "../components/editor/ChatDock";
 import EditorCanvas, {
   type EditorCanvasHandle,
@@ -68,6 +69,13 @@ function mutate(svg: string, fn: (doc: Document) => void): string {
 }
 
 export default function EditorPage() {
+  if (!EDITOR_ENABLED) {
+    return <Navigate to="/" replace />;
+  }
+  return <EditorPageInner />;
+}
+
+function EditorPageInner() {
   const { jobId = "" } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const canvasHandle = useRef<EditorCanvasHandle | null>(null);

@@ -16,13 +16,14 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# cairosvg / svglib / reportlab need the cairo + pango + pixbuf system libs.
-# Package name `libgdk-pixbuf2.0-0` is correct for Bookworm. On Trixie
-# (Debian 13) it was renamed to `libgdk-pixbuf-2.0-0` (extra hyphen) which
-# is why pinning to `-bookworm` above matters.
+# cairosvg / svglib / reportlab need cairo + pango + pixbuf at runtime.
+# svglib -> rlpycairo -> pycairo: when pip can't find a prebuilt wheel it
+# compiles pycairo from source, which needs a C compiler, pkg-config, and
+# libcairo2-dev headers (App Platform hit this on pycairo 1.29.0.tar.gz).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libcairo2 libpango-1.0-0 libgdk-pixbuf2.0-0 \
+        libcairo2 libcairo2-dev libpango-1.0-0 libgdk-pixbuf2.0-0 \
         libgl1 libglib2.0-0 \
+        gcc pkg-config \
         curl \
     && rm -rf /var/lib/apt/lists/*
 

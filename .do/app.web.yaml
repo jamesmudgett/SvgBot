@@ -1,0 +1,54 @@
+# DigitalOcean App Platform spec: frontend-only App.
+#
+# Pairs with .do/app.api.yaml (API on api.svg.bot) for the "split Apps,
+# same registrable domain" deployment.
+#
+# This App serves only the Vite build at svg.bot (and www.svg.bot). All
+# /api calls go cross-origin to api.svg.bot, which is why VITE_API_BASE
+# is hardcoded below at BUILD_TIME (Vite inlines import.meta.env.* into
+# the JS bundle at build, not at runtime).
+#
+# Deploy:  doctl apps create --spec .do/app.web.yaml
+# Update:  doctl apps update <web-app-id> --spec .do/app.web.yaml
+
+name: svgbot-web
+region: nyc
+
+# DNS setup before first deploy:
+#   (a) DigitalOcean DNS: uncomment both `zone:` lines below.
+#   (b) External DNS: leave them commented and add CNAME / ALIAS records
+#       pointing svg.bot and www.svg.bot at <web-app>.ondigitalocean.app.
+domains:
+  - domain: svg.bot
+    type: PRIMARY
+    # zone: svg.bot
+  - domain: www.svg.bot
+    type: ALIAS
+    # zone: svg.bot
+
+static_sites:
+  - name: web
+    github:
+      repo: jamesmudgett/SvgBot
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /frontend
+
+    # Buildpack only; no Dockerfile on static_sites.
+    environment_slug: node-js
+    build_command: npm ci && npm run build
+    output_dir: dist
+
+    # React Router SPA fallback for deep links.
+    catchall_document: index.html
+
+    envs:
+      # Cross-origin API host. MUST be BUILD_TIME because Vite resolves
+      # import.meta.env.VITE_API_BASE at build and inlines the literal
+      # string into the JS bundle. To change later: edit this value and
+      # redeploy (just bumping a runtime env var has no effect on the
+      # already-built bundle).
+      - key: VITE_API_BASE
+        scope: BUILD_TIME
+        value: https://api.svg.bot

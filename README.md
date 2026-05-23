@@ -300,14 +300,15 @@ Use `engine=vtracer` in tests when GPU / StarVector is unavailable.
 
 ## Deploy
 
-Two supported paths to DigitalOcean. Pick based on whether you want StarVector (needs a GPU) or are happy with VTracer plus the refinement loop (CPU-only, much cheaper).
+Three supported paths to DigitalOcean. Pick based on whether you want StarVector (needs a GPU), whether you want a dedicated `api.` hostname, or whether the simplest possible setup is the goal.
 
-| Path | StarVector | Where it runs | Approx. cost |
-|------|------------|---------------|--------------|
-| **A. App Platform (CPU-only, default)** | Disabled | One App with `static_sites: web` + `services: api` | ~$12/mo (one `basic-xs` service; static site is free) |
-| **B. GPU Droplet + App Platform frontend** | Enabled | Backend on a GPU Droplet, frontend as a static site | $300+/mo (e.g. RTX 4000 Ada GPU Droplet) |
+| Path | StarVector | Apps | Public hostnames | Approx. cost |
+|------|------------|------|------------------|--------------|
+| **A. Single App on App Platform** (simplest) | Disabled | 1 App, 2 components | `svg.bot` only (API at `svg.bot/api`) | ~$12/mo (one `basic-xs` service; static site is free) |
+| **B. Split Apps on App Platform** (recommended for production) | Disabled | 2 Apps | `svg.bot` + `api.svg.bot` | ~$12/mo (same: one `basic-xs` service; both static sites are free) |
+| **C. GPU Droplet + App Platform frontend** | Enabled | 1 App + 1 Droplet | `svg.bot` + `api.svg.bot` | $300+/mo (e.g. RTX 4000 Ada GPU Droplet) |
 
-Both paths use specs committed under `.do/`. Install [`doctl`](https://docs.digitalocean.com/reference/doctl/how-to/install/) and run `doctl auth init` first. Edit `github.repo` in the spec to point at your fork if you're not deploying upstream.
+All three paths use specs committed under `.do/`. Install [`doctl`](https://docs.digitalocean.com/reference/doctl/how-to/install/) and run `doctl auth init` first. Edit `github.repo` in the spec to point at your fork if you're not deploying upstream.
 
 ### A. CPU-only on DigitalOcean App Platform (default)
 
@@ -343,7 +344,70 @@ The image never ships your local secrets: `backend/.dockerignore` excludes `.env
 
 The `api` service runs on `basic-xs` (1 vCPU / 1 GB RAM). DinoScore (ResNet-50, ~100 MB) and LPIPS (AlexNet, ~50 MB) load lazily on the first request, so the first conversion takes 30-60s while models warm up. Bump `instance_size_slug` in `.do/app.yaml` if you need more concurrency or hit OOMs.
 
-### B. GPU Droplet for the backend + App Platform for the frontend
+### B. Split Apps on App Platform (svg.bot + api.svg.bot)
+
+Same hardware as path A, but the frontend and API ship as two independent Apps. Use this when you want:
+
+- A clean public API hostname (`api.svg.bot/.well-known/agent-api` reads better than `svg.bot/.well-known/agent-api` for the [Agent API](#agent-api-mpp--x402)).
+- Truly independent deploys (the API can roll without rebuilding the frontend, and vice versa).
+- Different instance sizes / scaling on the API without touching the static site.
+
+Cost is identical to path A: the static site is free either way, and a `basic-xs` service is `basic-xs` whether it lives alone or with a static sibling.
+
+Specs:
+
+- `.do/app.web.yaml`: static frontend on `svg.bot` + `www.svg.bot`, builds with `VITE_API_BASE=https://api.svg.bot` so the JS bundle calls cross-origin.
+- `.do/app.api.yaml`: API service on `api.svg.bot`, `CORS_ORIGINS=https://svg.bot,https://www.svg.bot` so the browser-issued cross-origin calls pass the CORS preflight.
+
+Deploy both Apps (order doesn't matter, but the API first means the first frontend build hits a working backend):
+
+```bash
+doctl apps create --spec .do/app.api.yaml
+doctl apps create --spec .do/app.web.yaml
+```
+
+Subsequent deploys are automatic per App on push to `main` (each spec sets `deploy_on_push: true`). To redeploy manually:
+
+```bash
+doctl apps update <api-app-id> --spec .do/app.api.yaml
+doctl apps update <web-app-id> --spec .do/app.web.yaml
+```
+
+DNS: each App needs its hostname attached. If your DNS is at DigitalOcean, uncomment the `zone:` lines in both specs and the records will be created for you. Otherwise add manually after the first deploy:
+
+```text
+svg.bot       ALIAS / ANAME / A  ->  <web-app>.ondigitalocean.app
+www.svg.bot   CNAME              ->  <web-app>.ondigitalocean.app
+api.svg.bot   CNAME              ->  <api-app>.ondigitalocean.app
+```
+
+Things to watch:
+
+- `VITE_API_BASE` is scoped `BUILD_TIME` because Vite inlines `import.meta.env.*` into the JS bundle. If you ever change the API hostname, edit `.do/app.web.yaml` and redeploy the web App, otherwise the inlined value goes stale.
+- The first conversion still triggers the lazy torch + DinoScore + LPIPS load on the API container. Health checks have a 90s warmup window for this.
+- If you add a preview / staging frontend hostname later, append it to `CORS_ORIGINS` on the API App or its preflight will reject.
+
+#### Migrating from path A to path B
+
+If you already have path A deployed (`.do/app.yaml`) and want to move to split Apps:
+
+```bash
+# 1. Create the two new Apps (DNS will be "Awaiting CNAME" until you flip records).
+doctl apps create --spec .do/app.api.yaml
+doctl apps create --spec .do/app.web.yaml
+
+# 2. Detach svg.bot from the old single App (App Settings -> Domains -> Remove)
+#    or just delete the old App entirely once you're happy with the new ones:
+doctl apps delete <old-single-app-id>
+
+# 3. Repoint DNS:
+#       svg.bot       -> <web-app>.ondigitalocean.app
+#       api.svg.bot   -> <api-app>.ondigitalocean.app
+```
+
+There's no data to migrate: the API is stateless (job results live in `data/jobs` inside each container's ephemeral filesystem).
+
+### C. GPU Droplet for the backend + App Platform for the frontend
 
 Use this when you want StarVector. The backend runs on a GPU you control (DigitalOcean GPU Droplet, your own box, anywhere with NVIDIA drivers); the static frontend stays on App Platform and calls the backend over HTTPS.
 

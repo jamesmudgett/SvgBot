@@ -1,0 +1,75 @@
+# DigitalOcean App Platform spec: API-only App.
+#
+# Pairs with .do/app.web.yaml (frontend) for the "split Apps, same registrable
+# domain" deployment. The API is published at api.svg.bot; the frontend's
+# build inlines VITE_API_BASE=https://api.svg.bot so browser calls become
+# https://api.svg.bot/api/vectorize, /api/jobs/{id}, /health, etc.
+#
+# Independent of the frontend App: redeploys of one don't redeploy the other.
+# CORS_ORIGINS must list every frontend host the browser will call from
+# (svg.bot, www.svg.bot, plus any preview hostnames if you use them).
+#
+# Deploy:  doctl apps create --spec .do/app.api.yaml
+# Update:  doctl apps update <api-app-id> --spec .do/app.api.yaml
+
+name: svgbot-api
+region: nyc
+
+# DNS setup before first deploy:
+#   (a) DigitalOcean DNS: uncomment `zone: svg.bot` below.
+#   (b) External DNS (Cloudflare, etc.): leave `zone:` commented and add
+#       a CNAME api.svg.bot -> <api-app>.ondigitalocean.app once the App
+#       exists. App Settings -> Domains shows the exact hostname.
+domains:
+  - domain: api.svg.bot
+    type: PRIMARY
+    # zone: svg.bot
+
+services:
+  - name: api
+    github:
+      repo: jamesmudgett/SvgBot
+      branch: main
+      deploy_on_push: true
+
+    source_dir: /backend
+    dockerfile_path: backend/Dockerfile
+
+    http_port: 8000
+    instance_count: 1
+    # DinoScore (ResNet-50 ~100 MB) + LPIPS (AlexNet ~50 MB) load lazily on
+    # first request. basic-xs is the floor; bump to basic-s / basic-m if
+    # you see OOMs or want concurrency.
+    instance_size_slug: basic-xs
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 90
+      period_seconds: 15
+      timeout_seconds: 10
+      failure_threshold: 5
+
+    envs:
+      - key: STARVECTOR_ENABLED
+        scope: RUN_TIME
+        value: "false"
+      - key: PAYMENTS_ENABLED
+        scope: RUN_TIME
+        value: "false"
+      # Browser fetches come from svg.bot / www.svg.bot. Both must be
+      # listed; the FastAPI CORS middleware does exact-string matching
+      # on the Origin header (with a localhost regex carved out separately).
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: "https://svg.bot,https://www.svg.bot"
+      # Optional: faster HF downloads + higher rate limits. Add as SECRET
+      # via the dashboard; do not commit.
+      # - key: HF_TOKEN
+      #   scope: RUN_TIME
+      #   type: SECRET
+      #   value: "EV[..."
+      # Optional: Grok-powered editor chat panel.
+      # - key: XAI_API_KEY
+      #   scope: RUN_TIME
+      #   type: SECRET
+      #   value: "EV[..."

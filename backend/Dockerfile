@@ -5,7 +5,11 @@
 #
 # For GPU deploys (Droplet, GPU k8s) use docker/Dockerfile.cuda instead.
 
-FROM python:3.12-slim
+# Pinned to Bookworm (Debian 12) instead of the floating `-slim` tag, which
+# now resolves to Trixie (Debian 13). Trixie renamed `libgdk-pixbuf2.0-0` to
+# `libgdk-pixbuf-2.0-0`, breaking the apt install below. Bookworm is the
+# Python project's default base through Dec 2028.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -13,6 +17,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # cairosvg / svglib / reportlab need the cairo + pango + pixbuf system libs.
+# Package name `libgdk-pixbuf2.0-0` is correct for Bookworm. On Trixie
+# (Debian 13) it was renamed to `libgdk-pixbuf-2.0-0` (extra hyphen) which
+# is why pinning to `-bookworm` above matters.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcairo2 libpango-1.0-0 libgdk-pixbuf2.0-0 \
         libgl1 libglib2.0-0 \

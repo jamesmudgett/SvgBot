@@ -4,6 +4,8 @@
 
 # svg.bot
 
+**[https://svg.bot](https://svg.bot)**
+
 **The most accurate image → fontless SVG converter available!** Not by picking one tracer and hoping for the best, but by running multiple vectorization engines in parallel, scoring every candidate with perceptual metrics, and iteratively **diffing, patching, and merging** corrective paths until fidelity plateaus.
 
 SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, and a **residual-overlay refinement loop** on every conversion that surgically fixes whatever the base engine missed. Optional **MPP / x402** payments let autonomous agents pay per conversion.

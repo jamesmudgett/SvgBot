@@ -12,6 +12,7 @@ from fastapi import (
 from fastapi.responses import Response
 
 from app.api.deps import parse_form_bool, verify_payment
+from app.services.preprocess import ImageTooLargeError, validate_image_limits
 
 logger = logging.getLogger(__name__)
 from app.config import EngineChoice, QualityTier, get_settings
@@ -48,6 +49,10 @@ async def create_vectorize_job(
                 raise HTTPException(413, "File too large")
             if not data:
                 raise HTTPException(400, "Empty file")
+            try:
+                validate_image_limits(data, settings)
+            except ImageTooLargeError as exc:
+                raise HTTPException(413, str(exc)) from exc
 
         url = (image_url or "").strip() or None
         if data is None and not url:

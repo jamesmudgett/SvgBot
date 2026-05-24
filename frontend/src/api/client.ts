@@ -68,26 +68,9 @@ export interface JobStatus {
 
 export type VectorizeSource = { kind: "file"; file: File } | { kind: "url"; url: string };
 
-/** Empty = Vite dev proxy. Set VITE_API_BASE=http://127.0.0.1:8000 to call API directly. */
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+import { httpError, wrapFetchError, apiUrl } from "./errors";
 
-export function apiUrl(path: string): string {
-  const base = API_BASE.replace(/\/$/, "");
-  return `${base}${path}`;
-}
-
-function wrapFetchError(err: unknown, context: string): Error {
-  if (err instanceof TypeError && /fetch|network/i.test(err.message)) {
-    const hint = API_BASE
-      ? API_BASE
-      : "http://127.0.0.1:8000 (via Vite proxy when using npm run dev)";
-    return new Error(
-      `Cannot reach the API (${context}). Is the backend running at ${hint}? ` +
-        "Start it with ./run.sh or: cd backend && uvicorn app.main:app --reload --port 8000"
-    );
-  }
-  return err instanceof Error ? err : new Error(String(err));
-}
+export { API_BASE } from "./errors";
 
 export async function checkHealth(): Promise<boolean> {
   const controller = new AbortController();
@@ -127,22 +110,12 @@ export async function createVectorizeJob(
       body: form,
     });
   } catch (err) {
-    throw wrapFetchError(err, source.kind === "file" ? "upload" : "URL submit");
+    throw wrapFetchError(err, "upload");
   }
 
   if (!res.ok) {
     const text = await res.text();
-    try {
-      const body = JSON.parse(text) as { detail?: string };
-      if (body.detail) {
-        throw new Error(body.detail);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message !== text) {
-        throw e;
-      }
-    }
-    throw new Error(text || `Submit failed (${res.status})`);
+    throw httpError(res.status, text, "upload");
   }
   const data = await res.json();
   return data.job_id as string;
@@ -153,9 +126,12 @@ export async function getJob(jobId: string): Promise<JobStatus> {
   try {
     res = await fetch(apiUrl(`/api/jobs/${jobId}`));
   } catch (err) {
-    throw wrapFetchError(err, "job status");
+    throw wrapFetchError(err, "poll");
   }
-  if (!res.ok) throw new Error(`Job fetch failed (${res.status})`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw httpError(res.status, text, "poll");
+  }
   return res.json();
 }
 

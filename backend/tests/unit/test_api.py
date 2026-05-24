@@ -67,6 +67,19 @@ def test_vectorize_job_flow(logo_png: bytes):
     assert "image/svg+xml" in svg_resp.headers["content-type"]
 
 
+def test_vectorize_rejects_oversized_photo():
+    """Photos above the kind-specific cap must fail fast with a clear 413."""
+    from tests.unit.test_image_limits import _large_photo
+
+    r = client.post(
+        "/api/vectorize",
+        files={"file": ("big-photo.png", _large_photo(2400, 1800), "image/png")},
+        data={"quality": "standard", "engine": "vtracer"},
+    )
+    assert r.status_code == 413
+    assert "photo" in r.json()["detail"].lower()
+
+
 def test_vectorize_requires_file_or_url():
     """Submitting neither a file nor a URL must produce a clear 400 instead of
     silently queueing a job that will never have any input bytes."""

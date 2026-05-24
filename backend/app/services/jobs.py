@@ -17,6 +17,7 @@ from app.models.schemas import (
 )
 from app.services import url_fetch
 from app.services.orchestrator import vectorize_bytes
+from app.services.preprocess import ImageTooLargeError, validate_image_limits
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,16 @@ def _run_job(
                 job.error = str(exc)
                 job.progress = "Failed"
                 return
+
+        settings = get_settings()
+        try:
+            validate_image_limits(image_data, settings)
+        except ImageTooLargeError as exc:
+            job.status = "failed"
+            job.phase = "failed"
+            job.error = str(exc)
+            job.progress = "Failed"
+            return
 
         def on_progress(phase: str, message: str) -> None:
             job.phase = phase  # type: ignore[assignment]

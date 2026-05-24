@@ -70,7 +70,15 @@ class Settings(BaseSettings):
     )
 
     max_upload_bytes: int = 20 * 1024 * 1024
-    max_image_dimension: int = 2048
+    # Hard ceiling before decode (all kinds). Prevents OOM on absurd dimensions.
+    max_image_dimension_absolute: int = 8192
+    # Per-kind processing caps (longest edge). Photos are rejected above their cap;
+    # logos and illustrations are downscaled to their cap.
+    max_image_dimension_logo: int = 4096
+    max_image_dimension_illustration: int = 3072
+    max_image_dimension_photo: int = 1536
+    # Used by supersample smoothing to cap internal raster size.
+    max_image_dimension: int = 3072
 
     starvector_model: str = "starvector/starvector-1b-im2svg"
     starvector_enabled: bool = True

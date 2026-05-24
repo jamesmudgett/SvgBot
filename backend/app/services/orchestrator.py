@@ -17,7 +17,13 @@ from app.services import (
 )
 from app.services.dino_score import score_svg
 from app.services.fontless import enforce_fontless
-from app.services.preprocess import classify_image, image_stats, load_image_bytes
+from app.services.preprocess import (
+    classify_image,
+    dimension_cap_for_kind,
+    image_stats,
+    load_image_bytes,
+    validate_image_limits,
+)
 from app.services.svg_raster import count_paths
 
 logger = logging.getLogger(__name__)
@@ -256,7 +262,9 @@ def vectorize_bytes(
             progress_callback(msg)
 
     report("preprocessing")
-    img, arr = load_image_bytes(data, settings.max_image_dimension)
+    probed_kind = validate_image_limits(data, settings)
+    cap = dimension_cap_for_kind(probed_kind, settings)
+    img, arr = load_image_bytes(data, cap)
     width, height = img.size
     stats = image_stats(arr)
     raw_kind = classify_image(stats)

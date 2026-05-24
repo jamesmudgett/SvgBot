@@ -14,10 +14,11 @@ export default function InfoSections() {
           <article className="info-phase">
             <h3>Phase 1: Preprocess &amp; classify</h3>
             <p>
-              The input image is loaded, resized (long edge capped at 2048 px), and analyzed for
-              unique color count and edge density. That classifies it as logo, illustration, or
-              photo, which selects VTracer parameter grids and whether the smooth-curve pipeline
-              runs.
+              The input image is loaded and analyzed for unique color count and edge density.
+              That classifies it as logo, illustration, or photo. Photos over 1536 px on the
+              longest side are rejected; logos and illustrations are downscaled to 4096 px and
+              3072 px respectively. Classification selects VTracer parameter grids and whether
+              the smooth-curve pipeline runs.
             </p>
           </article>
 

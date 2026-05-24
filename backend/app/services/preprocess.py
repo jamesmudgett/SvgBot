@@ -4,9 +4,67 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from app.config import Settings
+
+_PROBE_THUMB = 512
+
+
+class ImageTooLargeError(ValueError):
+    """Raised when an upload exceeds kind-aware or absolute dimension limits."""
+
+
+def read_image_dimensions(data: bytes) -> tuple[int, int]:
+    with Image.open(BytesIO(data)) as img:
+        return img.size
+
+
+def dimension_cap_for_kind(kind: str, settings: Settings) -> int:
+    if kind == "logo":
+        return settings.max_image_dimension_logo
+    if kind == "illustration":
+        return settings.max_image_dimension_illustration
+    return settings.max_image_dimension_photo
+
+
+def probe_image_kind(data: bytes) -> str:
+    """Classify on a small thumbnail so huge uploads are not fully decoded."""
+    with Image.open(BytesIO(data)) as img:
+        img.draft(img.mode, (_PROBE_THUMB, _PROBE_THUMB))
+        thumb = img.copy()
+        thumb.thumbnail((_PROBE_THUMB, _PROBE_THUMB), Image.Resampling.LANCZOS)
+        arr = np.array(thumb.convert("RGBA"))
+    stats = image_stats(arr)
+    raw_kind = classify_image(stats)
+    if is_monochrome_logo(arr):
+        return "logo"
+    return raw_kind
+
+
+def validate_image_limits(data: bytes, settings: Settings) -> str:
+    """Return probed image kind; raise ``ImageTooLargeError`` when over hard limits."""
+    width, height = read_image_dimensions(data)
+    long_edge = max(width, height)
+    if long_edge > settings.max_image_dimension_absolute:
+        raise ImageTooLargeError(
+            f"Image too large ({width}×{height} px). "
+            f"Maximum allowed dimension is {settings.max_image_dimension_absolute} px "
+            "on the longest side."
+        )
+
+    kind = probe_image_kind(data)
+    cap = dimension_cap_for_kind(kind, settings)
+    if kind == "photo" and long_edge > cap:
+        raise ImageTooLargeError(
+            f"This image looks like a photo at {width}×{height} px. "
+            f"Photos are limited to {cap} px on the longest side. "
+            "Try resizing or cropping before uploading."
+        )
+    return kind
+
 
 def load_image_bytes(data: bytes, max_dimension: int) -> tuple[Image.Image, np.ndarray]:
-    img = Image.open(BytesIO(data)).convert("RGBA")
+    with Image.open(BytesIO(data)) as img:
+        img = img.convert("RGBA")
     img = _resize_if_needed(img, max_dimension)
     arr = np.array(img)
     return img, arr

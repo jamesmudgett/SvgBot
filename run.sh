@@ -1,11 +1,46 @@
 #!/usr/bin/env bash
 # Start SvgBot backend (FastAPI) and frontend (Vite) from the project root.
+#
+# Usage:
+#   bash run.sh           Dev: backend (--reload) + frontend
+#   bash run.sh --gpu     Production backend only (CUDA + StarVector, no --reload)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 VENV_PY=""
+GPU_MODE=0
+
+usage() {
+  cat <<EOF
+Usage: bash run.sh [OPTIONS]
+
+Options:
+  --gpu     Production backend only: install CUDA PyTorch + StarVector, run
+            uvicorn without --reload (for tunnel / home-GPU deploy). No frontend.
+  -h, --help  Show this help.
+
+Environment:
+  BACKEND_PORT   Backend listen port (default: 8000)
+  FRONTEND_PORT  Frontend dev port (default: 5173; ignored with --gpu)
+EOF
+}
+
+for arg in "$@"; do
+  case "${arg}" in
+    --gpu) GPU_MODE=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: ${arg}" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 cleanup() {
   local pids
@@ -69,7 +104,21 @@ ensure_backend_venv() {
     "${venv_py}" -m pip install -q -r "${ROOT}/backend/requirements.txt"
   fi
 
+  if [ "${GPU_MODE}" -eq 1 ]; then
+    install_gpu_torch "${venv_py}"
+  fi
+
   install_starvector "${venv_py}"
+}
+
+install_gpu_torch() {
+  local venv_py=$1
+  if [ ! -f "${ROOT}/backend/requirements-gpu.txt" ]; then
+    echo "requirements-gpu.txt not found; skipping CUDA PyTorch install." >&2
+    return
+  fi
+  echo "Installing CUDA PyTorch (requirements-gpu.txt)..."
+  "${venv_py}" -m pip install -q -r "${ROOT}/backend/requirements-gpu.txt"
 }
 
 install_starvector() {
@@ -163,7 +212,7 @@ except Exception:
   return 1
 }
 
-if [ ! -d "${ROOT}/frontend/node_modules" ]; then
+if [ "${GPU_MODE}" -eq 0 ] && [ ! -d "${ROOT}/frontend/node_modules" ]; then
   echo "Installing frontend dependencies..."
   (cd "${ROOT}/frontend" && npm install)
 fi
@@ -173,6 +222,17 @@ export PYTHONPATH="${ROOT}/backend"
 unset STARVECTOR_ENABLED 2>/dev/null || true
 
 stop_stale_backend
+
+if [ "${GPU_MODE}" -eq 1 ]; then
+  echo "Starting production backend (GPU) on http://0.0.0.0:${BACKEND_PORT}"
+  echo "  Health:   http://127.0.0.1:${BACKEND_PORT}/health"
+  echo "  API docs: http://127.0.0.1:${BACKEND_PORT}/docs"
+  echo ""
+  echo "Set STARVECTOR_ENABLED=true in backend/.env. Press Ctrl+C to stop."
+  cd "${ROOT}/backend"
+  exec "$(venv_python)" -m uvicorn app.main:app \
+    --host 0.0.0.0 --port "${BACKEND_PORT}"
+fi
 
 echo "Starting backend on http://127.0.0.1:${BACKEND_PORT}"
 # Important: limit `--reload` scope to ./app so watchfiles ignores .venv and the

@@ -167,7 +167,9 @@ The job result also carries two structured fields the UI renders below the metri
 The simplest way to run SvgBot is from the project root:
 
 ```bash
-bash run.sh
+bash run.sh           # dev: backend (--reload) + frontend
+bash run.sh --gpu     # backend only, no --reload
+bash run.sh --help    # options
 ```
 
 That creates `backend/.venv` if needed, installs Python and npm dependencies (including StarVector), starts the FastAPI backend on port 8000 and the Vite frontend on port 5173, then opens both services. Press `Ctrl+C` to stop.

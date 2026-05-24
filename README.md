@@ -20,7 +20,7 @@ SvgBot treats vectorization as a **search-and-refine** problem, not a single pas
 
 The input image is loaded, resized (long edge capped at 2048 px), and analyzed for **unique color count** and **edge density**. That classifies it as `logo`, `illustration`, or `photo`, which selects VTracer parameter grids and which downstream candidates run.
 
-A second classifier, **`is_monochrome_logo`**, bucket-counts the image into 64 coarse RGB bins and asks whether the top 2 bins cover >=92% of pixels. This catches **monochrome brand marks whose anti-aliasing pushes `unique_colors` above the logo threshold** (the cleo regression: 64 unique colors after AA, but truly 2 tones underneath). When it fires, the orchestrator **promotes the effective kind to `logo`** so the logo-only routing below applies regardless of what the color/edge classifier said.
+A second classifier, **`is_monochrome_logo`**, bucket-counts the image into 64 coarse RGB bins and asks whether the top 2 bins cover >=92% of pixels. This catches **monochrome brand marks whose anti-aliasing pushes `unique_colors` above the logo threshold** (e.g. a 2-tone wordmark with 64 unique colors after AA, but truly 2 tones underneath). When it fires, the orchestrator **promotes the effective kind to `logo`** so the logo-only routing below applies regardless of what the color/edge classifier said.
 
 ### Phase 2: Multi-engine candidate generation
 
@@ -32,7 +32,7 @@ The default engine is **`auto`**: SvgBot runs every applicable engine, scores th
 | **StarVector** | Illustrations, complex artwork | A vision-language model (`starvector-1b-im2svg` or `8b`) generates SVG path markup directly from the image. Runs `k` stochastic samples (3 standard / 5 high quality); each sample is rasterized and scored, then a **best-of-k** is chosen with a DinoScore primary + LPIPS tiebreak (`_LPIPS_TIEBREAK_DINO_EPS = 0.02`). Needs a CUDA GPU. |
 | **VTracer** | Photos, gradients, many colors | Classical color-region tracing on the raw image. **Auto-tune** sweeps a parameter grid (`LOGO_GRID` for logos, `DEFAULT_GRID` otherwise) and keeps the highest-scoring result. |
 | **VTracer smooth** | Logos, icons, brand marks | Bilateral filter + k-means palette quantization (`clean_for_tracing`) produces flat color regions with crisp edges, then VTracer traces with a **smooth-curve grid** (`LOGO_SMOOTH_GRID`) tuned for fewer control points and cleaner splines. Skipped for photos. Still scored against the **original** image. |
-| **VTracer mono** | 2-color logos (cleo, wordmarks) | **Forces a 2-color palette** before tracing, collapsing every anti-aliased shade of the foreground into a single fill. Uses `LOGO_MONO_GRID` (binary colormode, low filter_speckle) so the output is a handful of clean paths instead of one micro-path per AA pixel. Skipped for non-logos. |
+| **VTracer mono** | 2-color logos (wordmarks, round letterforms) | **Forces a 2-color palette** before tracing, collapsing every anti-aliased shade of the foreground into a single fill. Uses `LOGO_MONO_GRID` (binary colormode, low filter_speckle) so the output is a handful of clean paths instead of one micro-path per AA pixel. Skipped for non-logos. |
 
 **Inside Auto**, the candidate set is:
 
@@ -54,7 +54,7 @@ The winner is chosen with a **kind-aware** rank function (`orchestrator._pick_be
 
 | Effective kind | Rank metric | Why |
 |----------------|-------------|-----|
-| `logo` (including monochrome-promoted) | `mean(dino, lpips)` | DinoScore alone over-weights global color match. On letterforms, two candidates can have near-identical DinoScores but very different glyph crispness; LPIPS catches that. Mean-ranking is what fixed the cleo regression. |
+| `logo` (including monochrome-promoted) | `mean(dino, lpips)` | DinoScore alone over-weights global color match. On letterforms, two candidates can have near-identical DinoScores but very different glyph crispness; LPIPS catches that. Mean-ranking avoids picking a globally similar but geometrically choppy winner. |
 | `illustration`, `photo` | `dino` | LPIPS over-rewards pixel-perfect edge fidelity, which is the wrong signal for photographic or illustrative content. |
 
 The winner becomes the **base SVG** for refinement. The full per-engine score breakdown (`engine`, `dino`, `lpips`, `mean`, `selected`, `tried`) is returned on the job result so the UI can show **exactly which engine won and by how much**.
@@ -104,18 +104,18 @@ Accepted passes are counted in the API response as `refine_passes`; peak residua
 
 ### Phase 5: Geometric smoothing
 
-Even the refined winner often has stair-stepped letter contours (this is the canonical cleo regression: a 2-color brand mark traced as a chain of pixel-aligned micro line segments). DinoScore and LPIPS pick the *least choppy* candidate but cannot rewrite a chosen candidate's geometry, so a dedicated post-process pass smooths the final SVG before sanitize.
+Even the refined winner often has stair-stepped letter contours (typical on 2-color wordmarks traced as pixel-aligned micro line segments along anti-aliased edges). DinoScore and LPIPS pick the *least choppy* candidate but cannot rewrite a chosen candidate's geometry, so a dedicated post-process pass smooths the final SVG before sanitize.
 
 The pass is a **hybrid** of two complementary methods, picked by which one survives the gates:
 
 | Method | What it does | When it wins |
 |--------|--------------|--------------|
-| **B. Supersample-retrace** | Upscale the **source image** (not the choppy SVG) to `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x (default 8x), apply Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 2.0) to soften pixel-step ramps, then re-trace with VTracer mono. Renormalizes viewBox back to the input dimensions. | Round-letter / curve-dominated logos (cleo, most brand marks with rounded letterforms). |
+| **B. Supersample-retrace** | Upscale the **source image** (not the choppy SVG) to `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x (default 8x), apply Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 2.0) to soften pixel-step ramps, then re-trace with VTracer mono. Renormalizes viewBox back to the input dimensions. | Round-letter / curve-dominated logos (wordmarks, most brand marks with rounded letterforms). |
 | **A. Schneider Bezier refit** | Parse each `<path d>` with `svgpathtools`, sample to a dense polyline, apply Chaikin corner-cutting (`PATH_SMOOTHING_CHAIKIN_ITERATIONS`, default 3) to soften stairsteps, run Ramer-Douglas-Peucker at `PATH_SMOOTHING_RDP_TOLERANCE_LOGO` (default 1.5 px), detect real corners by turn angle (`PATH_SMOOTHING_CORNER_ANGLE_DEG`, default 75 deg), and refit smooth cubic Beziers between corners with Schneider's least-squares algorithm. | Corner-heavy logos / icons where B would round off real geometry. |
 
 **Acceptance gates.** Both methods must pass the DinoScore gate. Logos use a wider tolerance (`PATH_SMOOTHING_MAX_DELTA_LOGO`, default 0.08) because ResNet features penalize sub-pixel edge shifts even when curves look cleaner. Illustrations use `PATH_SMOOTHING_MAX_DELTA` (default 0.01). SVG-only supersample (fallback when no source image is available) additionally requires the corner-preservation histogram check. Image retrace skips that check because stairstep artifacts in the input SVG register as false sharp corners.
 
-**DinoScore vs. visual quality on logos.** A smoothed cleo-class logo often scores ~0.05-0.08 lower than the choppy pre-smoothing SVG even when letter curves look clearly better. That is expected: the metric reacts to pixel-level edge shifts, not curve aesthetics. Judge logo smoothing by eye and by the `smoothing_method` field (`supersample` means image retrace won), not by whether DinoScore went up.
+**DinoScore vs. visual quality on logos.** A smoothed round-letter wordmark often scores ~0.05-0.08 lower than the choppy pre-smoothing SVG even when letter curves look clearly better. That is expected: the metric reacts to pixel-level edge shifts, not curve aesthetics. Judge logo smoothing by eye and by the `smoothing_method` field (`supersample` means image retrace won), not by whether DinoScore went up.
 
 Skipped entirely for `kind=photo` (we want photographic detail preserved) and disable-able via `PATH_SMOOTHING_ENABLED=false`.
 

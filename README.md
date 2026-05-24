@@ -10,6 +10,20 @@
 
 SvgBot combines **StarVector** (neural im2svg, GPU), **VTracer** (classical color tracing), **DinoScore** / **LPIPS** candidate ranking, a **residual-overlay refinement loop**, and a **geometric smoothing post-process** that rewrites choppy letter contours into smooth Bezier curves on every conversion. Optional **MPP / x402** payments let autonomous agents pay per conversion.
 
+## Why search-and-refine?
+
+Most image tracers (including browser libraries like [ImageTracer.js](https://github.com/jankovicsandras/imagetracerjs)) run **one algorithm once**: quantize colors, trace boundaries, emit SVG. You pick a preset (`smoothed`, `posterized2`, etc.) and hope it fits the input.
+
+SvgBot treats vectorization as **search, score, repair, smooth**:
+
+| Single-pass tracer | SvgBot |
+|--------------------|--------|
+| One engine, one pass | Multiple engines in parallel (VTracer variants + optional StarVector) |
+| Manual preset tuning | Perceptual scoring (DinoScore + LPIPS) picks the best candidate |
+| Same settings for every image | Classifies `logo` / `illustration` / `photo` and routes engines accordingly |
+| Output is final | Iterative **residual diff**: re-trace only pixels that still differ, merge patches |
+| Smoothing baked into trace step | Dedicated **geometry repair** pass (supersample-retrace + cubic Bezier refit), gated so quality cannot silently regress |
+
 ---
 
 ## How it works

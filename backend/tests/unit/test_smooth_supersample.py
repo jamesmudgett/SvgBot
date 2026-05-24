@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
+
 from app.services import smooth_paths
 
 
@@ -84,3 +86,19 @@ def test_supersample_clamps_scale_when_input_too_large():
     assert vb is not None
     assert vb[2] == 2000
     assert vb[3] == 2000
+
+
+def test_snap_to_palette_restores_quantized_colors_after_blur():
+    """Gaussian blur on a 2-color image must not leave intermediate grays for VTracer."""
+    palette = np.array([[69, 32, 27], [245, 243, 238]], dtype=np.uint8)
+    arr = np.zeros((20, 20, 3), dtype=np.uint8)
+    arr[:10, :] = palette[0]
+    arr[10:, :] = palette[1]
+
+    import cv2
+
+    blurred = cv2.GaussianBlur(arr, (0, 0), 2.0)
+    assert len(np.unique(blurred.reshape(-1, 3), axis=0)) > 2
+
+    snapped = smooth_paths._snap_to_palette(blurred, palette)
+    assert np.array_equal(np.unique(snapped.reshape(-1, 3), axis=0), palette)

@@ -23,6 +23,21 @@ from app.services.preprocess import load_image_bytes
 CLEO_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "cleo.png"
 
 
+def _hex_fills(svg: str) -> list[str]:
+    return sorted(set(re.findall(r'fill="([^"]+)"', svg)))
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _color_close(a: str, b: str, *, tolerance: int = 8) -> bool:
+    ar, ag, ab = _hex_to_rgb(a)
+    br, bg, bb = _hex_to_rgb(b)
+    return max(abs(ar - br), abs(ag - bg), abs(ab - bb)) <= tolerance
+
+
 def _count_lines_and_curves(svg: str) -> tuple[int, int]:
     """Return ``(line_commands, curve_commands)`` across every <path d> in svg.
 
@@ -109,3 +124,18 @@ def test_cleo_hybrid_smoothing_swaps_lines_for_curves_and_preserves_score():
         f"(base={base_dino:.4f}, smoothed={new_dino:.4f}, "
         f"delta={new_dino - base_dino:+.4f}, gate={settings.path_smoothing_max_delta_logo})"
     )
+
+    base_fills = _hex_fills(base_svg)
+    smoothed_fills = _hex_fills(smoothed_svg)
+    assert "#000000" not in smoothed_fills, (
+        f"smoothing must not collapse the palette to black "
+        f"(base={base_fills}, smoothed={smoothed_fills})"
+    )
+    assert len(smoothed_fills) >= 2, (
+        f"mono logo must keep at least two fill colors "
+        f"(base={base_fills}, smoothed={smoothed_fills})"
+    )
+    for fill in smoothed_fills:
+        assert any(_color_close(fill, base) for base in base_fills), (
+            f"smoothed fill {fill!r} must match a baseline color in {base_fills}"
+        )

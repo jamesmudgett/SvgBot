@@ -176,6 +176,23 @@ def _rdp_tolerance_for_kind(kind: str, settings: Settings) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _extract_palette(arr: np.ndarray) -> np.ndarray:
+    """Return the distinct RGB colors in ``arr`` as a (K, 3) uint8 array."""
+    return np.unique(arr.reshape(-1, 3), axis=0)
+
+
+def _snap_to_palette(arr: np.ndarray, palette: np.ndarray) -> np.ndarray:
+    """Map every pixel in ``arr`` to its nearest color in ``palette`` (RGB L2)."""
+    if palette.size == 0:
+        return arr
+    h, w = arr.shape[:2]
+    flat = arr.reshape(-1, 3).astype(np.float32)
+    centers = palette.astype(np.float32)
+    diff = flat[:, None, :] - centers[None, :, :]
+    nearest = np.argmin(np.sum(diff * diff, axis=2), axis=1)
+    return centers[nearest].astype(np.uint8).reshape(h, w, 3)
+
+
 def _smooth_via_image_retrace(
     source: Image.Image,
     width: int,
@@ -214,8 +231,15 @@ def _smooth_via_image_retrace(
         )
         grid = vtracer_engine.LOGO_SMOOTH_GRID
 
+    arr = np.array(cleaned.convert("RGB"))
+    palette = _extract_palette(arr)
+
     if blur_sigma > 0:
-        arr = cv2.GaussianBlur(np.array(cleaned.convert("RGB")), (0, 0), blur_sigma)
+        arr = cv2.GaussianBlur(arr, (0, 0), blur_sigma)
+        # Blurring a hard palette creates intermediate grays that VTracer traces
+        # as near-black fills. Snap back to the pre-blur palette so brand colors
+        # survive the edge-softening pass.
+        arr = _snap_to_palette(arr, palette)
         cleaned = Image.fromarray(arr, mode="RGB")
 
     svg, _ = vtracer_engine.auto_tune(cleaned, new_w, new_h, grid=grid)

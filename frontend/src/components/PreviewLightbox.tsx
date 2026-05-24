@@ -5,10 +5,17 @@ type Props = {
   open: boolean;
   onClose: () => void;
   label: string;
+  interactive?: boolean;
   children: ReactNode;
 };
 
-export default function PreviewLightbox({ open, onClose, label, children }: Props) {
+export default function PreviewLightbox({
+  open,
+  onClose,
+  label,
+  interactive = false,
+  children,
+}: Props) {
   useEffect(() => {
     if (!open) return;
 
@@ -30,11 +37,11 @@ export default function PreviewLightbox({ open, onClose, label, children }: Prop
 
   return createPortal(
     <div
-      className="preview-lightbox"
+      className={`preview-lightbox${interactive ? " preview-lightbox-interactive" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={label}
-      onClick={onClose}
+      onClick={interactive ? undefined : onClose}
     >
       <button
         type="button"
@@ -47,7 +54,12 @@ export default function PreviewLightbox({ open, onClose, label, children }: Prop
       >
         ×
       </button>
-      <div className="preview-lightbox-content">{children}</div>
+      <div
+        className={`preview-lightbox-content${interactive ? " preview-lightbox-content-interactive" : ""}`}
+        onClick={interactive ? (event) => event.stopPropagation() : undefined}
+      >
+        {children}
+      </div>
     </div>,
     document.body
   );

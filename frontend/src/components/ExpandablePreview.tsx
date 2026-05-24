@@ -5,6 +5,7 @@ type Props = {
   label: string;
   frameStyle?: CSSProperties;
   lightbox: ReactNode;
+  interactive?: boolean;
   children: ReactNode;
 };
 
@@ -12,6 +13,7 @@ export default function ExpandablePreview({
   label,
   frameStyle,
   lightbox,
+  interactive = false,
   children,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -38,7 +40,12 @@ export default function ExpandablePreview({
       >
         {children}
       </div>
-      <PreviewLightbox open={open} onClose={() => setOpen(false)} label={label}>
+      <PreviewLightbox
+        open={open}
+        onClose={() => setOpen(false)}
+        label={label}
+        interactive={interactive}
+      >
         {lightbox}
       </PreviewLightbox>
     </>

@@ -12,6 +12,7 @@ import {
 } from "../api/client";
 import InfoSections from "../components/InfoSections";
 import { DEFAULT_ENGINE, ENGINE_OPTIONS } from "../engineOptions";
+import BeforeAfterCompare from "../components/BeforeAfterCompare";
 import ExpandablePreview from "../components/ExpandablePreview";
 import ProgressStepper from "../components/ProgressStepper";
 import SvgPreview from "../components/SvgPreview";
@@ -569,7 +570,8 @@ export default function HomePage() {
           <div className="preview-box preview-box-upload preview-box-vector">
             {resultSvg ? (
               <ExpandablePreview
-                label="Vector preview"
+                label="Before and after comparison"
+                interactive={Boolean(previewUrl)}
                 frameStyle={
                   displaySize
                     ? {
@@ -578,7 +580,19 @@ export default function HomePage() {
                       }
                     : undefined
                 }
-                lightbox={<SvgPreview svg={resultSvg} className="preview-lightbox-media" />}
+                lightbox={
+                  previewUrl ? (
+                    <BeforeAfterCompare
+                      beforeSrc={previewUrl}
+                      beforeCrossOrigin={
+                        previewSource === "url" ? "anonymous" : undefined
+                      }
+                      afterSvg={resultSvg}
+                    />
+                  ) : (
+                    <SvgPreview svg={resultSvg} className="preview-lightbox-media" />
+                  )
+                }
               >
                 <SvgPreview svg={resultSvg} />
               </ExpandablePreview>

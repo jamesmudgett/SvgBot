@@ -184,7 +184,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 0;
   background: rgba(8, 10, 14, 0.94);
   cursor: zoom-out;
 }
@@ -193,16 +193,24 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
+.preview-lightbox-interactive {
+  cursor: default;
+}
+
+.preview-lightbox-content-interactive {
+  pointer-events: auto;
+}
+
 .preview-lightbox-media {
-  max-width: min(95vw, 100%);
-  max-height: 95vh;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100vh;
   object-fit: contain;
   display: block;
 }
@@ -234,6 +242,85 @@ button:disabled {
 .preview-lightbox-close:focus-visible {
   outline: 2px solid #4f8cff;
   outline-offset: 2px;
+}
+
+.before-after {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: hidden;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.before-after-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
+.before-after-after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.before-after-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.before-after-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: #fff;
+  color: #1a1d24;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.before-after-label {
+  position: absolute;
+  bottom: 1rem;
+  z-index: 3;
+  padding: 0.25rem 0.55rem;
+  border-radius: 4px;
+  background: rgba(8, 10, 14, 0.72);
+  color: #e8eaed;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.before-after-label-before {
+  left: 1rem;
+}
+
+.before-after-label-after {
+  right: 1rem;
 }
 
 .preview-media {

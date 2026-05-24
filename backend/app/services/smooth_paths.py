@@ -2,9 +2,10 @@
 
 Two complementary methods, picked by the hybrid ``smooth_svg`` entry point:
 
-- **Approach B (supersample-retrace):** rasterize at ``scale * (w, h)``, apply
-  a small Gaussian blur to damp pixel-step ramps in the rendered AA, then
-  re-trace with VTracer in ``mode=spline``. Cheap, reuses existing tools.
+- **Approach B (supersample-retrace):** upscale the **source image** (not the
+  choppy SVG), re-clean and optionally blur, then re-trace with VTracer mono /
+  smooth grids. Falls back to SVG rasterize-retrace when no source image is
+  available. Cheap, reuses existing tools.
 - **Approach A (Schneider Bezier refit):** polyline-sample every path's ``d``,
   mark turn-angle corners, refit smooth cubic Beziers between consecutive
   corners. Corner-preserving by construction.
@@ -23,7 +24,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-from dataclasses import dataclass
 from typing import Callable, Sequence
 
 import cv2
@@ -31,7 +31,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import Settings
-from app.services import vtracer_engine
+from app.services import preprocess, vtracer_engine
 from app.services.svg_raster import rasterize_svg
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ def smooth_svg(
     kind: str,
     score_fn: Callable[[str], float],
     settings: Settings,
+    source_image: Image.Image | None = None,
 ) -> tuple[str, str, float]:
     """Run the hybrid smoothing pass and return ``(svg, method, dino_delta)``.
 
@@ -64,23 +65,42 @@ def smooth_svg(
     failed (input is returned byte-for-byte).
     """
     base_dino = score_fn(svg)
-    max_delta = float(settings.path_smoothing_max_delta)
+    max_delta = _max_delta_for_kind(kind, settings)
     corner_angle = float(settings.path_smoothing_corner_angle_deg)
     retention = float(settings.path_smoothing_corner_retention_threshold)
 
     rdp_tolerance = _rdp_tolerance_for_kind(kind, settings)
+    chaikin_iters = int(settings.path_smoothing_chaikin_iterations)
     scale = int(settings.path_smoothing_supersample_scale)
     blur_sigma = float(settings.path_smoothing_blur_sigma)
     if kind == "illustration":
-        scale = max(2, scale - 1)
-        blur_sigma = max(0.0, blur_sigma - 0.2)
+        scale = max(4, scale - 2)
+        blur_sigma = max(0.5, blur_sigma - 0.5)
 
-    # --- Approach B: supersample-retrace -----------------------------------
+    # --- Approach B: image supersample-retrace (preferred) -----------------
+    b_svg: str | None = None
+    b_from_image = False
     try:
-        b_svg = _smooth_via_supersample(
-            svg, width, height, scale=scale, blur_sigma=blur_sigma,
-            max_dimension=int(settings.max_image_dimension),
-        )
+        if source_image is not None:
+            b_svg = _smooth_via_image_retrace(
+                source_image,
+                width,
+                height,
+                kind=kind,
+                scale=scale,
+                blur_sigma=blur_sigma,
+                max_dimension=int(settings.max_image_dimension),
+            )
+            b_from_image = True
+        else:
+            b_svg = _smooth_via_supersample(
+                svg,
+                width,
+                height,
+                scale=scale,
+                blur_sigma=blur_sigma,
+                max_dimension=int(settings.max_image_dimension),
+            )
     except Exception as exc:
         logger.warning("smooth_paths: supersample failed: %s", exc)
         b_svg = None
@@ -96,12 +116,14 @@ def smooth_svg(
             svg, b_svg,
             corner_angle_deg=corner_angle, retention_threshold=retention,
         )
-        if b_score_ok and b_corners_ok:
+        # Image retrace deliberately softens the raster before tracing; the
+        # corner histogram on the old stairstepped SVG is not a fair gate.
+        if b_score_ok and (b_corners_ok or b_from_image):
             return b_svg, "supersample", b_dino - base_dino
         logger.info(
-            "smooth_paths: B rejected (score_ok=%s corners_ok=%s "
+            "smooth_paths: B rejected (score_ok=%s corners_ok=%s from_image=%s "
             "dino %.4f vs %.4f); falling back to bezier refit",
-            b_score_ok, b_corners_ok, b_dino, base_dino,
+            b_score_ok, b_corners_ok, b_from_image, b_dino, base_dino,
         )
 
     # --- Approach A: Schneider Bezier refit --------------------------------
@@ -111,6 +133,7 @@ def smooth_svg(
             corner_angle_deg=corner_angle,
             rdp_tolerance=rdp_tolerance,
             sample_step=0.6,
+            chaikin_iterations=chaikin_iters,
         )
     except Exception as exc:
         logger.warning("smooth_paths: bezier refit failed: %s", exc)
@@ -136,6 +159,12 @@ def smooth_svg(
     return svg, "none", 0.0
 
 
+def _max_delta_for_kind(kind: str, settings: Settings) -> float:
+    if kind == "logo":
+        return float(settings.path_smoothing_max_delta_logo)
+    return float(settings.path_smoothing_max_delta)
+
+
 def _rdp_tolerance_for_kind(kind: str, settings: Settings) -> float:
     if kind == "illustration":
         return float(settings.path_smoothing_rdp_tolerance_illustration)
@@ -145,6 +174,52 @@ def _rdp_tolerance_for_kind(kind: str, settings: Settings) -> float:
 # ---------------------------------------------------------------------------
 # Approach B: supersample-retrace
 # ---------------------------------------------------------------------------
+
+
+def _smooth_via_image_retrace(
+    source: Image.Image,
+    width: int,
+    height: int,
+    *,
+    kind: str,
+    scale: int = 8,
+    blur_sigma: float = 1.5,
+    max_dimension: int = 2048,
+) -> str:
+    """Upscale the source raster, pre-clean, blur, and re-trace from scratch.
+
+    Re-tracing an already-choppy SVG rasterizes the stairsteps back into the
+    bitmap and VTracer faithfully reproduces them. Starting from the original
+    image at ``scale`` x resolution gives VTracer a smoother silhouette to
+    follow, which is what actually fixes cleo-class logo letterforms.
+    """
+    longest = max(width, height)
+    if longest <= 0:
+        raise ValueError("width and height must be positive")
+
+    eff_scale = max(1, min(int(scale), max_dimension // longest))
+    new_w = max(1, width * eff_scale)
+    new_h = max(1, height * eff_scale)
+
+    big = source.convert("RGB").resize((new_w, new_h), Image.LANCZOS)
+
+    if kind == "logo":
+        cleaned = preprocess.clean_for_tracing(
+            big, kind="logo", palette_size=2, bilateral=True
+        )
+        grid = vtracer_engine.LOGO_MONO_GRID
+    else:
+        cleaned = preprocess.clean_for_tracing(
+            big, kind=kind, palette_size=6, bilateral=True
+        )
+        grid = vtracer_engine.LOGO_SMOOTH_GRID
+
+    if blur_sigma > 0:
+        arr = cv2.GaussianBlur(np.array(cleaned.convert("RGB")), (0, 0), blur_sigma)
+        cleaned = Image.fromarray(arr, mode="RGB")
+
+    svg, _ = vtracer_engine.auto_tune(cleaned, new_w, new_h, grid=grid)
+    return _renormalize_viewbox(svg, width, height, eff_scale)
 
 
 def _smooth_via_supersample(
@@ -244,6 +319,7 @@ def _smooth_via_bezier_refit(
     corner_angle_deg: float = 75.0,
     rdp_tolerance: float = 0.35,
     sample_step: float = 0.6,
+    chaikin_iterations: int = 3,
 ) -> str:
     """Rewrite every ``<path d="...">`` with corner-preserving smooth Beziers.
 
@@ -267,6 +343,7 @@ def _smooth_via_bezier_refit(
             corner_angle_deg=corner_angle_deg,
             rdp_tolerance=rdp_tolerance,
             sample_step=sample_step,
+            chaikin_iterations=chaikin_iterations,
         )
         if new_d is None or not new_d.strip():
             return match.group(0)
@@ -281,6 +358,7 @@ def _refit_path_d(
     corner_angle_deg: float,
     rdp_tolerance: float,
     sample_step: float,
+    chaikin_iterations: int = 0,
 ) -> str | None:
     """Refit a single ``d`` attribute. Returns ``None`` to signal 'leave it'."""
     try:
@@ -306,6 +384,8 @@ def _refit_path_d(
         if polyline is None or len(polyline) < 4:
             out_parts.append(_emit_polyline(polyline, closed=closed))
             continue
+        if chaikin_iterations > 0:
+            polyline = _chaikin_smooth(polyline, chaikin_iterations)
         # RDP must run *before* corner detection. A pixel-stepped polyline is
         # geometrically a chain of 90 deg corners; without RDP, the corner
         # detector would flag every step as a corner and the refit would emit
@@ -331,6 +411,22 @@ def _refit_path_d(
         )
         out_parts.append(emitted)
     return " ".join(p for p in out_parts if p)
+
+
+def _chaikin_smooth(points: np.ndarray, iterations: int) -> np.ndarray:
+    """Chaikin's corner-cutting algorithm: smooth a polyline without shifting far."""
+    pts = np.asarray(points, dtype=np.float64)
+    for _ in range(max(0, iterations)):
+        if len(pts) < 3:
+            break
+        new_pts: list[np.ndarray] = [pts[0]]
+        for i in range(len(pts) - 1):
+            p0, p1 = pts[i], pts[i + 1]
+            new_pts.append(0.75 * p0 + 0.25 * p1)
+            new_pts.append(0.25 * p0 + 0.75 * p1)
+        new_pts.append(pts[-1])
+        pts = np.asarray(new_pts, dtype=np.float64)
+    return pts
 
 
 def _split_into_subpaths(path) -> list[tuple[list, bool]]:

@@ -397,6 +397,7 @@ def vectorize_bytes(
                 kind=kind,
                 score_fn=_smoothing_score,
                 settings=settings,
+                source_image=img,
             )
         except Exception as exc:
             logger.warning("smoothing pass failed, keeping refined SVG: %s", exc)

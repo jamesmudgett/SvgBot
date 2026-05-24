@@ -101,13 +101,15 @@ class Settings(BaseSettings):
     # backend/app/services/smooth_paths.py.
     path_smoothing_enabled: bool = True
     # DinoScore (ResNet-50 features) is sensitive to sub-pixel alignment; a
-    # smoothed SVG with visually identical or better geometry can score ~0.005
-    # lower than its choppy original purely because pixels shifted. The gate
-    # needs enough headroom to accept those wins; the corner-preservation
-    # check guards against catastrophic geometry damage independently.
+    # smoothed SVG with visually identical or better geometry can score lower
+    # than its choppy original purely because pixels shifted. Logos use a
+    # wider gate because the smoothing pass trades a small metric drop for
+    # visibly cleaner letterform curves.
     path_smoothing_max_delta: float = 0.01
-    path_smoothing_supersample_scale: int = 4
-    path_smoothing_blur_sigma: float = 0.7
+    path_smoothing_max_delta_logo: float = 0.08
+    path_smoothing_supersample_scale: int = 8
+    path_smoothing_blur_sigma: float = 2.0
+    path_smoothing_chaikin_iterations: int = 3
     path_smoothing_corner_angle_deg: float = 75.0
     path_smoothing_corner_retention_threshold: float = 0.8
     # rdp_tolerance is in user-units (typically pixels). VTracer's stair-stepped

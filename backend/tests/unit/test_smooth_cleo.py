@@ -80,6 +80,7 @@ def test_cleo_hybrid_smoothing_swaps_lines_for_curves_and_preserves_score():
         kind="logo",
         score_fn=score_fn,
         settings=settings,
+        source_image=img,
     )
 
     base_lines, base_curves = _count_lines_and_curves(base_svg)
@@ -103,8 +104,8 @@ def test_cleo_hybrid_smoothing_swaps_lines_for_curves_and_preserves_score():
     )
 
     new_dino = score_fn(smoothed_svg)
-    assert new_dino >= base_dino - settings.path_smoothing_max_delta, (
-        f"smoothing must not drop DinoScore below the gate "
+    assert new_dino >= base_dino - settings.path_smoothing_max_delta_logo, (
+        f"smoothing must not drop DinoScore below the logo gate "
         f"(base={base_dino:.4f}, smoothed={new_dino:.4f}, "
-        f"delta={new_dino - base_dino:+.4f}, gate={settings.path_smoothing_max_delta})"
+        f"delta={new_dino - base_dino:+.4f}, gate={settings.path_smoothing_max_delta_logo})"
     )

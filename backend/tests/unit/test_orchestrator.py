@@ -427,8 +427,8 @@ def test_orchestrator_runs_hybrid_smoothing_for_logos(
 
     captured: dict[str, object] = {}
 
-    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
-        _ = width, height, score_fn, settings
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings, source_image=None):
+        _ = width, height, score_fn, settings, source_image
         captured["called"] = True
         captured["kind"] = kind
         captured["in_svg"] = svg
@@ -486,8 +486,8 @@ def test_orchestrator_records_bezier_refit_fallback(
     actual smoothing strategy that produced the final SVG."""
     _stub_engines_for_orchestrator(monkeypatch)
 
-    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
-        _ = width, height, kind, score_fn, settings
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings, source_image=None):
+        _ = svg, width, height, kind, score_fn, settings, source_image
         return ("<svg id='refit'/>", "bezier_refit", -0.0008)
 
     monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)
@@ -514,8 +514,8 @@ def test_orchestrator_records_no_op_when_both_methods_fail(
 
     pre_smoothing_marker = {"svg": None}
 
-    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
-        _ = width, height, kind, score_fn, settings
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings, source_image=None):
+        _ = svg, width, height, kind, score_fn, settings, source_image
         pre_smoothing_marker["svg"] = svg
         return (svg, "none", 0.0)
 
@@ -544,8 +544,8 @@ def test_orchestrator_emits_smoothing_progress_message(
     via supersample (delta +0.001)' instead of just 'Smoothing edges'."""
     _stub_engines_for_orchestrator(monkeypatch)
 
-    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings):
-        _ = svg, width, height, kind, score_fn, settings
+    def fake_smooth_svg(svg, width, height, *, kind, score_fn, settings, source_image=None):
+        _ = svg, width, height, kind, score_fn, settings, source_image
         return ("<svg id='smoothed'/>", "supersample", 0.0010)
 
     monkeypatch.setattr(orchestrator.smooth_paths, "smooth_svg", fake_smooth_svg)

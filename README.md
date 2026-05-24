@@ -110,10 +110,10 @@ The pass is a **hybrid** of two complementary methods, picked by which one survi
 
 | Method | What it does | When it wins |
 |--------|--------------|--------------|
-| **B. Supersample-retrace** | Rasterize the chosen SVG at `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x source dims (default 4x), apply a small Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 0.7) to damp pixel-step ramps in the rendered AA, then re-trace with VTracer in `mode=spline`. Renormalizes viewBox back to the input dimensions. Cheap, reuses existing tools. | Round-letter / curve-dominated logos (cleo, most brand marks with rounded letterforms). |
+| **B. Supersample-retrace** | Upscale the **source image** (not the choppy SVG) to `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x (default 8x), apply Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 2.0) to soften pixel-step ramps, then re-trace with VTracer mono. Renormalizes viewBox back to the input dimensions. | Round-letter / curve-dominated logos (cleo, most brand marks with rounded letterforms). |
 | **A. Schneider Bezier refit** | Parse each `<path d>` with `svgpathtools`, sample to a dense polyline, run Ramer-Douglas-Peucker at `PATH_SMOOTHING_RDP_TOLERANCE_LOGO` (default 1.5 px) to collapse pixel-step noise, detect real corners by turn angle (`PATH_SMOOTHING_CORNER_ANGLE_DEG`, default 75 deg), and refit smooth cubic Beziers between corners with Schneider's least-squares algorithm. | Corner-heavy logos / icons where B would round off real geometry. |
 
-**Acceptance gates.** Both methods must pass the DinoScore gate (`PATH_SMOOTHING_MAX_DELTA`, default 0.01: smoothed dino must not drop by more than this). B additionally has to pass a **corner-preservation histogram check**: the smoothed SVG must retain at least `PATH_SMOOTHING_CORNER_RETENTION_THRESHOLD` (default 0.8 = 80%) of the original sharp vertices. If the original has no sharp corners (cleo) the check vacuously passes; if it has many (an angular icon) and B rounds them off, the corner check rejects B and A takes over. If both methods fail their gates the unsmoothed SVG is kept and the metrics panel shows `Smoothing: skipped`.
+**Acceptance gates.** Both methods must pass the DinoScore gate. Logos use a wider tolerance (`PATH_SMOOTHING_MAX_DELTA_LOGO`, default 0.08) because ResNet features penalize sub-pixel edge shifts even when curves look cleaner. Illustrations use `PATH_SMOOTHING_MAX_DELTA` (default 0.01). SVG-only supersample (fallback when no source image is available) additionally requires the corner-preservation histogram check. Image retrace skips that check because stairstep artifacts in the input SVG register as false sharp corners.
 
 Skipped entirely for `kind=photo` (we want photographic detail preserved) and disable-able via `PATH_SMOOTHING_ENABLED=false`.
 
@@ -310,8 +310,10 @@ Geometric smoothing tuning (optional; smoothing always runs unless `PATH_SMOOTHI
 ```env
 PATH_SMOOTHING_ENABLED=true
 PATH_SMOOTHING_MAX_DELTA=0.01
-PATH_SMOOTHING_SUPERSAMPLE_SCALE=4
-PATH_SMOOTHING_BLUR_SIGMA=0.7
+PATH_SMOOTHING_MAX_DELTA_LOGO=0.08
+PATH_SMOOTHING_SUPERSAMPLE_SCALE=8
+PATH_SMOOTHING_BLUR_SIGMA=2.0
+PATH_SMOOTHING_CHAIKIN_ITERATIONS=3
 PATH_SMOOTHING_CORNER_ANGLE_DEG=75
 PATH_SMOOTHING_CORNER_RETENTION_THRESHOLD=0.8
 PATH_SMOOTHING_RDP_TOLERANCE_LOGO=1.5

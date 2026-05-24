@@ -111,9 +111,11 @@ The pass is a **hybrid** of two complementary methods, picked by which one survi
 | Method | What it does | When it wins |
 |--------|--------------|--------------|
 | **B. Supersample-retrace** | Upscale the **source image** (not the choppy SVG) to `PATH_SMOOTHING_SUPERSAMPLE_SCALE` x (default 8x), apply Gaussian blur (`PATH_SMOOTHING_BLUR_SIGMA`, default 2.0) to soften pixel-step ramps, then re-trace with VTracer mono. Renormalizes viewBox back to the input dimensions. | Round-letter / curve-dominated logos (cleo, most brand marks with rounded letterforms). |
-| **A. Schneider Bezier refit** | Parse each `<path d>` with `svgpathtools`, sample to a dense polyline, run Ramer-Douglas-Peucker at `PATH_SMOOTHING_RDP_TOLERANCE_LOGO` (default 1.5 px) to collapse pixel-step noise, detect real corners by turn angle (`PATH_SMOOTHING_CORNER_ANGLE_DEG`, default 75 deg), and refit smooth cubic Beziers between corners with Schneider's least-squares algorithm. | Corner-heavy logos / icons where B would round off real geometry. |
+| **A. Schneider Bezier refit** | Parse each `<path d>` with `svgpathtools`, sample to a dense polyline, apply Chaikin corner-cutting (`PATH_SMOOTHING_CHAIKIN_ITERATIONS`, default 3) to soften stairsteps, run Ramer-Douglas-Peucker at `PATH_SMOOTHING_RDP_TOLERANCE_LOGO` (default 1.5 px), detect real corners by turn angle (`PATH_SMOOTHING_CORNER_ANGLE_DEG`, default 75 deg), and refit smooth cubic Beziers between corners with Schneider's least-squares algorithm. | Corner-heavy logos / icons where B would round off real geometry. |
 
 **Acceptance gates.** Both methods must pass the DinoScore gate. Logos use a wider tolerance (`PATH_SMOOTHING_MAX_DELTA_LOGO`, default 0.08) because ResNet features penalize sub-pixel edge shifts even when curves look cleaner. Illustrations use `PATH_SMOOTHING_MAX_DELTA` (default 0.01). SVG-only supersample (fallback when no source image is available) additionally requires the corner-preservation histogram check. Image retrace skips that check because stairstep artifacts in the input SVG register as false sharp corners.
+
+**DinoScore vs. visual quality on logos.** A smoothed cleo-class logo often scores ~0.05-0.08 lower than the choppy pre-smoothing SVG even when letter curves look clearly better. That is expected: the metric reacts to pixel-level edge shifts, not curve aesthetics. Judge logo smoothing by eye and by the `smoothing_method` field (`supersample` means image retrace won), not by whether DinoScore went up.
 
 Skipped entirely for `kind=photo` (we want photographic detail preserved) and disable-able via `PATH_SMOOTHING_ENABLED=false`.
 
@@ -132,8 +134,8 @@ While a job runs, the orchestrator emits a progress message **after each engine 
 [vtracer_smooth] VTracer smooth: dino=0.930 lpips=0.987 mean=0.959
 [vtracer_mono  ] VTracer monochrome: dino=0.947 lpips=0.991 mean=0.969
 [refining      ] Winner: vtracer_mono (mean(dino,lpips)=0.969) out of 4 engine(s)
-[refining      ] Refinement accepted 3 pass(es), final dino=0.953 lpips=0.992
-[smoothing     ] Smoothing accepted via supersample (dino 0.951, delta -0.002)
+[refining      ] Refinement accepted 3 pass(es), final dino=0.947 lpips=0.992
+[smoothing     ] Smoothing accepted via supersample (dino 0.870, delta -0.077)
 [sanitizing    ] Cleaning up SVG
 ```
 

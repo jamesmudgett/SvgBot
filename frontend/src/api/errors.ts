@@ -24,7 +24,7 @@ function parseDetail(text: string): string | null {
   return null;
 }
 
-function wrapFetchError(err: unknown, context: "upload" | "poll" | "health"): Error {
+export function wrapFetchError(err: unknown, context: "upload" | "poll" | "health"): Error {
   const isNetwork =
     err instanceof TypeError &&
     /fetch|network|aborted|failed to fetch/i.test(err.message);
@@ -60,7 +60,7 @@ function wrapFetchError(err: unknown, context: "upload" | "poll" | "health"): Er
   return userError("Could not reach the server. Please try again in a moment.");
 }
 
-function httpError(status: number, text: string, context: "upload" | "poll"): Error {
+export function httpError(status: number, text: string, context: "upload" | "poll"): Error {
   const detail = parseDetail(text);
   if (detail) {
     return userError(detail);
